@@ -1,0 +1,19 @@
+[Unit]
+Description=turno-mcp — multi-tenant MCP server for Turno (TurnoverBnB) v2 API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/turno-mcp
+EnvironmentFile=/opt/turno-mcp/.env
+ExecStart=/usr/bin/node /opt/turno-mcp/dist/src/index.js
+Restart=always
+RestartSec=5
+# Logs to journald
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,35 @@
+{
+  "name": "turno-mcp",
+  "version": "0.1.0",
+  "description": "Multi-tenant MCP server for Turno (formerly TurnoverBnB) — full v2 REST API coverage for short-term-rental turnover/cleaning operations.",
+  "type": "module",
+  "bin": {
+    "turno-mcp": "dist/src/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/src/index.js",
+    "start:http": "TRANSPORT=http node dist/src/index.js",
+    "dev": "tsx src/index.ts",
+    "dev:http": "TRANSPORT=http tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "dotenv": "^16.4.5",
+    "express": "^4.22.1",
+    "pino": "^9.5.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.25",
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
