@@ -26,9 +26,11 @@ polish. Tick boxes as items land. Effort: **S** ≤30 min, **M** 1–3 h, **L** 
 
 ## Phase 2 — Defense in depth on the edge
 
-- [ ] **Rate-limit `/enroll` and `/token`.** [M]
-  `express-rate-limit`, e.g. 5/hour/IP. Otherwise anyone with the URL can spray
-  tenant creation and grow `tenants.json` unboundedly.
+- [x] **Rate-limit `/enroll` and `/token`.** [M — done 2026-04-20]
+  `express-rate-limit` at 5/hour/IP on the two POST endpoints (GET /enroll and
+  the MCP transport untouched). Returns 429 with draft-7 `RateLimit-*` +
+  `Retry-After` headers. Verified live on turno.nlma.io — `RateLimit-Policy:
+  5;w=3600` visible on responses.
 - [ ] **Validate the credential at enrollment time.** [M]
   After accepting Secret Key + Partner ID, do a single `GET /v2/userinfo` call
   before saving the tenant. Typos and bad partner-IDs surface at enroll, not on

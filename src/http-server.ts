@@ -1,4 +1,5 @@
 import express from "express";
+import rateLimit from "express-rate-limit";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { randomUUID } from "node:crypto";
@@ -42,13 +43,28 @@ export function buildApp(opts: StartOpts): express.Express {
     res.json({ status: "ok", server: "turno-mcp", tenants: opts.store.list().length });
   });
 
+  // Rate-limit the tenant-creation endpoints so a leaked URL can't be
+  // sprayed to grow tenants.json without bound. 5 writes/hour/IP is
+  // plenty for legitimate onboarding — real enrollment is once-ever.
+  const enrollLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    limit: 5,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: {
+      error: "rate_limited",
+      error_description:
+        "Too many enrollment attempts from this IP. Try again in an hour.",
+    },
+  });
+
   // ─── Enrollment ───────────────────────────────────────────────────────
   if (opts.enrollEnabled) {
     app.get("/enroll", (_req, res) => {
       res.setHeader("Content-Type", "text/html; charset=utf-8").status(200).send(enrollForm());
     });
 
-    app.post("/enroll", (req, res) => {
+    app.post("/enroll", enrollLimiter, (req, res) => {
       const label = String(req.body?.label ?? "").trim();
       const apiToken = String(req.body?.api_token ?? "").trim();
       const partnerId = String(req.body?.partner_id ?? "").trim();
@@ -98,7 +114,7 @@ export function buildApp(opts: StartOpts): express.Express {
      * client_credentials–style automation). Accepts JSON + returns JSON.
      * Treats the Turno API token + partner ID as the "client credentials".
      */
-    app.post("/token", (req, res) => {
+    app.post("/token", enrollLimiter, (req, res) => {
       const grant = String(req.body?.grant_type ?? "");
       if (grant !== "api_token") {
         res.status(400).json({
