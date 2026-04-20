@@ -16,10 +16,13 @@ polish. Tick boxes as items land. Effort: **S** ≤30 min, **M** 1–3 h, **L** 
   reload after any renewal across the whole VPS. Installed a global hook at
   `/etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh` (`nginx -t &&
   systemctl reload nginx`) which fires for every renewed cert. Fleet-wide fix.
-- [ ] **Add a `data/tenants.json.bak` snapshot before each `npm ci` in
-      [deploy/push-to-vps.sh](deploy/push-to-vps.sh).** [S]
-  Single-file copy with a date suffix so a botched deploy doesn't trash
-  enrollment state.
+- [x] **Add a `data/tenants.json.bak` snapshot before each `npm ci` in
+      [deploy/push-to-vps.sh](deploy/push-to-vps.sh).** [S — done 2026-04-20]
+  Snapshot block runs on the VPS inside the deploy heredoc: `cp -p
+  data/tenants.json data/tenants.<UTC-timestamp>.json.bak`, then keeps the 5
+  newest and deletes older ones. Seeded a baseline backup
+  `data/tenants.20260420T180705Z.json.bak` so there's already a restore point
+  before the next deploy.
 
 ## Phase 2 — Defense in depth on the edge
 

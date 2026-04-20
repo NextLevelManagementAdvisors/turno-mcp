@@ -33,6 +33,16 @@ mkdir -p "$REMOTE_DIR"
 tar -xzf /tmp/turno-mcp-push.tgz -C "$REMOTE_DIR"
 rm -f /tmp/turno-mcp-push.tgz
 cd "$REMOTE_DIR"
+
+# Snapshot tenants.json before npm ci so a botched install can be rolled back.
+# Keep the 5 newest backups; name so 'ls | sort' is chronological.
+if [ -f data/tenants.json ]; then
+  TS=\$(date -u +%Y%m%dT%H%M%SZ)
+  cp -p data/tenants.json data/tenants.\$TS.json.bak
+  ls -1t data/tenants.*.json.bak 2>/dev/null | tail -n +6 | xargs -r rm -f
+  echo "   tenants.json snapshot: data/tenants.\$TS.json.bak"
+fi
+
 npm ci --omit=dev --no-audit --no-fund
 
 # Install systemd unit on first push
