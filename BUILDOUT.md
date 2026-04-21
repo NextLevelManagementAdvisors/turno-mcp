@@ -104,9 +104,17 @@ rotate `TURNO_ENCRYPTION_KEY` (invalidates everyone's bearer).
   - `tools-shared.test.ts` (4) — `shapeToJsonSchema` for primitives,
     optional/default excluded from `required[]`, array item nesting,
     `.describe()` → `description` field
-- [ ] **Integration smoke test** that boots the server on a random port, calls
+- [x] **Integration smoke test** that boots the server on a random port, calls
       `/token` with mocked outbound fetch, walks `initialize` → `tools/list` →
-      a `tools/call` with the mock returning canned JSON. [M]
+      a `tools/call` with the mock returning canned JSON. [M — done 2026-04-21]
+  `tests/integration/mcp-smoke.test.ts` — 5 cases covering the whole
+  auth + MCP flow. Monkey-patches `globalThis.fetch` to intercept
+  `api.turnoverbnb.com` only (localhost passes through), then:
+  `/token` → bearer JWT → `initialize` → `tools/list` (≥40 tools,
+  turno_get_userinfo + turno_list_properties present) →
+  `tools/call turno_get_userinfo` (mocked data round-trips) → 401
+  on unknown bearer. Cleans up: restores fetch, closes server. Runs
+  in ~650ms.
 - [ ] **GitHub Actions.** [S]
   `.github/workflows/ci.yml` — `npm ci && npm run typecheck && npm test` on
   PRs to `main`.
