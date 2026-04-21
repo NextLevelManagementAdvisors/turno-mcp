@@ -81,9 +81,14 @@ rotate `TURNO_ENCRYPTION_KEY` (invalidates everyone's bearer).
   attempt we throw a new `TurnoNetworkError` (with `timedOut: boolean`).
   Verified via 3-case unit check (timeout-then-throw, timeout-then-recover,
   default-accepts).
-- [ ] **Graceful shutdown.** [S]
-  `process.on('SIGTERM')` → close the Express listener, wait up to 10s for
-  in-flight `StreamableHTTPServerTransport` sessions, then exit.
+- [x] **Graceful shutdown.** [S — done 2026-04-21]
+  SIGTERM/SIGINT now stops accepting new connections (`server.close()` +
+  `closeIdleConnections()`), then waits for the `transports` map to drain
+  up to `TURNO_SHUTDOWN_TIMEOUT_MS` (default 10s) before exiting.
+  Re-entrancy-guarded so a double signal is a no-op. Verified live via
+  `systemctl restart` — journal shows `graceful shutdown starting` →
+  `graceful shutdown complete — all sessions drained` within ~1ms when
+  idle; systemd handoff clean.
 
 ## Phase 5 — Tests + CI
 

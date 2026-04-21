@@ -334,10 +334,42 @@ void enrollError;
 
 export function listen(opts: StartOpts): void {
   const app = buildApp(opts);
-  app.listen(opts.port, opts.host, () => {
+  const server = app.listen(opts.port, opts.host, () => {
     opts.logger.info(
       { host: opts.host, port: opts.port, enrollEnabled: opts.enrollEnabled },
       "turno-mcp HTTP listening",
     );
   });
+
+  // Graceful shutdown: on SIGTERM (systemd restart) or SIGINT (Ctrl+C),
+  // stop accepting new connections, drain in-flight MCP sessions for up to
+  // TURNO_SHUTDOWN_TIMEOUT_MS, then exit cleanly so `Restart=always` cycles
+  // don't drop tool calls mid-flight.
+  let shuttingDown = false;
+  const shutdown = async (signal: NodeJS.Signals) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    opts.logger.info({ signal, inflight: transports.size }, "graceful shutdown starting");
+
+    server.close();
+    server.closeIdleConnections?.();
+
+    const deadline = Date.now() + config.TURNO_SHUTDOWN_TIMEOUT_MS;
+    while (transports.size > 0 && Date.now() < deadline) {
+      await new Promise<void>((r) => setTimeout(r, 100));
+    }
+
+    if (transports.size > 0) {
+      opts.logger.warn(
+        { inflight: transports.size, waitedMs: config.TURNO_SHUTDOWN_TIMEOUT_MS },
+        "shutdown deadline hit, forcing exit",
+      );
+    } else {
+      opts.logger.info("graceful shutdown complete — all sessions drained");
+    }
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
 }

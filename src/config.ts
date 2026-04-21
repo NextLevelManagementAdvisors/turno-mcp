@@ -31,6 +31,11 @@ export const config = {
   // a Node handler indefinitely. Each retry attempt gets its own budget.
   TURNO_REQUEST_TIMEOUT_MS: Number(process.env.TURNO_REQUEST_TIMEOUT_MS ?? 30_000),
 
+  // How long to wait for in-flight MCP sessions to drain on SIGTERM/SIGINT
+  // before force-exiting. systemd's default TimeoutStopSec is 90s, so the
+  // default (10s) leaves plenty of headroom.
+  TURNO_SHUTDOWN_TIMEOUT_MS: Number(process.env.TURNO_SHUTDOWN_TIMEOUT_MS ?? 10_000),
+
   // stdio mode
   TURNO_API_TOKEN: process.env.TURNO_API_TOKEN ?? "",
   TURNO_PARTNER_ID: process.env.TURNO_PARTNER_ID ?? "",
