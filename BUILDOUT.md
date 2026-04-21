@@ -115,9 +115,11 @@ rotate `TURNO_ENCRYPTION_KEY` (invalidates everyone's bearer).
   `tools/call turno_get_userinfo` (mocked data round-trips) → 401
   on unknown bearer. Cleans up: restores fetch, closes server. Runs
   in ~650ms.
-- [ ] **GitHub Actions.** [S]
-  `.github/workflows/ci.yml` — `npm ci && npm run typecheck && npm test` on
-  PRs to `main`.
+- [x] **GitHub Actions.** [S — done 2026-04-21]
+  `.github/workflows/ci.yml` runs on push + pull_request to main: npm ci
+  → typecheck → test → build. Node 20, npm cache enabled. No secrets
+  needed (tests mock outbound fetch). The workflow itself fires on
+  landing too, so this commit will produce the first green check.
 
 ## Phase 6 — Polish
 
