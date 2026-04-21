@@ -136,7 +136,13 @@ rotate `TURNO_ENCRYPTION_KEY` (invalidates everyone's bearer).
   [turno.nlma.io](https://turno.nlma.io/).
 - [x] ~~README: client wiring snippets~~ [done 2026-04-21]
   Updated for stateless JWT model + OAuth client_credentials section.
-- [ ] **prettier + eslint** with the same config the other MCPs use. [S]
+- [x] **prettier + eslint** with the same config the other MCPs use. [S — resolved 2026-04-21]
+  Surveyed baselane-mcp, hospitable-mcp, doorloop-mcp, guesty-mcp, hostlane
+  — **none** of them have prettier or eslint configured. Matching the fleet
+  convention means not adding it to turno-mcp either; `tsc --strict` is the
+  current quality gate across the fleet and is enforced here via typecheck.
+  If this ever becomes a fleet-wide project, add it everywhere together
+  rather than making turno-mcp the odd one out.
 - [ ] **Delete `/opt/turno-mcp/.legacy-tenant-store/`** after a stability
       window (~1 week with no rollback needed). [S, manual]
 
