@@ -1,5 +1,4 @@
 import "dotenv/config";
-import { resolve } from "node:path";
 
 const trueish = (v: string | undefined, def = false): boolean => {
   if (v === undefined) return def;
@@ -15,12 +14,9 @@ export const config = {
   PUBLIC_HOST: process.env.TURNO_PUBLIC_HOST ?? "turno.nlma.io",
   ENROLL_ENABLED: trueish(process.env.ENROLL_ENABLED, true),
 
-  // Tenant storage
+  // Root key for HKDF-derived JWT HMAC + embedded-credential AES-GCM.
+  // Bearers are self-contained JWTs — there is no tenant store.
   TURNO_ENCRYPTION_KEY: process.env.TURNO_ENCRYPTION_KEY ?? "",
-  TURNO_DATA_DIR: resolve(process.env.TURNO_DATA_DIR ?? "./data"),
-  TURNO_TENANTS_FILE: resolve(
-    process.env.TURNO_TENANTS_FILE ?? "./data/tenants.json",
-  ),
 
   // Turno API
   TURNO_BASE_URL: (process.env.TURNO_BASE_URL ?? "https://api.turnoverbnb.com/v2").replace(/\/+$/, ""),

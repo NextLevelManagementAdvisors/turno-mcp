@@ -1,15 +1,15 @@
 import type { NextFunction, Request, Response } from "express";
+import { BearerError, verifyBearer } from "./bearer.js";
+import { getToolContext } from "./client-cache.js";
+import type { Logger } from "./logger.js";
 import type { ToolContext } from "./tools/_shared.js";
-import type { Tenant, TenantStore } from "./tenants.js";
-import type { TenantRegistry } from "./tenant-registry.js";
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       toolCtx?: ToolContext;
-      tenantLabel?: string;
-      tenant?: Tenant;
+      partnerId?: string;
     }
   }
 }
@@ -26,8 +26,7 @@ function extractBearer(req: Request): string | null {
 }
 
 export interface BearerAuthOpts {
-  store: TenantStore;
-  registry: TenantRegistry;
+  logger: Logger;
 }
 
 export function buildBearerAuth(opts: BearerAuthOpts) {
@@ -41,19 +40,23 @@ export function buildBearerAuth(opts: BearerAuthOpts) {
       });
       return;
     }
-    const tenant = opts.store.getByBearer(token);
-    if (!tenant) {
+    try {
+      const claims = verifyBearer(token);
+      req.partnerId = claims.partnerId;
+      req.toolCtx = getToolContext({
+        partnerId: claims.partnerId,
+        secretKey: claims.secretKey,
+        baseUrl: claims.baseUrl,
+        logger: opts.logger,
+      });
+      next();
+    } catch (err) {
+      const msg = err instanceof BearerError ? err.message : "invalid bearer";
       res.setHeader("WWW-Authenticate", 'Bearer realm="Turno MCP"');
       res.status(401).json({
         error: "unauthorized",
-        error_description: "Unknown bearer token",
+        error_description: msg,
       });
-      return;
     }
-    req.tenant = tenant;
-    req.toolCtx = opts.registry.get(tenant);
-    req.tenantLabel = tenant.id;
-    opts.store.touch(tenant.id);
-    next();
   };
 }

@@ -3,25 +3,31 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:cr
 const KEY_LENGTH = 32;
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
-const HKDF_INFO = "turno-mcp tenant secret v1";
+const SECRET_INFO = "turno-mcp tenant secret v1";
 
-let cachedKey: Buffer | null = null;
+const keyCache = new Map<string, Buffer>();
 
-function getKey(): Buffer {
-  if (cachedKey) return cachedKey;
+/**
+ * Derive a 32-byte key from the root `TURNO_ENCRYPTION_KEY` for a given
+ * purpose. Callers pass a stable `info` string so different purposes
+ * (AES-GCM encryption, HMAC signing) get non-overlapping keys.
+ */
+export function deriveKey(info: string): Buffer {
+  const cached = keyCache.get(info);
+  if (cached) return cached;
   const salt = process.env.TURNO_ENCRYPTION_KEY;
   if (!salt || salt.length < 32) {
     throw new Error("TURNO_ENCRYPTION_KEY must be set and at least 32 chars");
   }
-  const derived = hkdfSync(
-    "sha256",
-    Buffer.from(salt),
-    Buffer.alloc(0),
-    HKDF_INFO,
-    KEY_LENGTH,
+  const derived = Buffer.from(
+    hkdfSync("sha256", Buffer.from(salt), Buffer.alloc(0), info, KEY_LENGTH),
   );
-  cachedKey = Buffer.from(derived);
-  return cachedKey;
+  keyCache.set(info, derived);
+  return derived;
+}
+
+function getKey(): Buffer {
+  return deriveKey(SECRET_INFO);
 }
 
 export interface EncryptedValue {

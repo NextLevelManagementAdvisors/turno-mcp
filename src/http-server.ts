@@ -4,11 +4,11 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { randomUUID } from "node:crypto";
 import { buildBearerAuth } from "./auth.js";
+import { signBearer } from "./bearer.js";
 import type { Logger } from "./logger.js";
 import type { ToolContext } from "./tools/_shared.js";
 import { registerTools } from "./tools/register.js";
-import type { TenantStore } from "./tenants.js";
-import type { TenantRegistry } from "./tenant-registry.js";
+import { TurnoClient, TurnoApiError } from "./turno-client.js";
 import { enrollError, enrollForm, enrollSuccess, landingPage } from "./enroll-html.js";
 import { config } from "./config.js";
 
@@ -16,13 +16,14 @@ interface StartOpts {
   host: string;
   port: number;
   publicHost: string;
-  store: TenantStore;
-  registry: TenantRegistry;
   enrollEnabled: boolean;
   logger: Logger;
 }
 
 const transports = new Map<string, StreamableHTTPServerTransport>();
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const BEARER_TTL_SECONDS = 86_400; // 1 day — short enough to force refresh, long enough for normal use
 
 function buildMcpServer(toolCtx: ToolContext): Server {
   const server = new Server(
@@ -31,6 +32,38 @@ function buildMcpServer(toolCtx: ToolContext): Server {
   );
   registerTools(server, toolCtx);
   return server;
+}
+
+/**
+ * Validate Turno credentials with a real outbound /userinfo call before
+ * handing the user a bearer. Catches typos / revoked tokens at enrollment
+ * time instead of on the first MCP call.
+ *
+ * Returns `{ok: true, info}` on success, `{ok: false, reason}` otherwise.
+ */
+async function validateTurnoCredentials(
+  opts: { partnerId: string; secretKey: string; baseUrl: string; logger: Logger },
+): Promise<{ ok: true; info: unknown } | { ok: false; status: number; reason: string }> {
+  const client = new TurnoClient({
+    baseUrl: opts.baseUrl,
+    bearerToken: opts.secretKey,
+    partnerId: opts.partnerId,
+    logger: opts.logger,
+  });
+  try {
+    const info = await client.get("/userinfo");
+    return { ok: true, info };
+  } catch (err) {
+    if (err instanceof TurnoApiError) {
+      return {
+        ok: false,
+        status: err.status,
+        reason: `Turno rejected these credentials (HTTP ${err.status}). Double-check the Secret Key and Partner ID.`,
+      };
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, status: 502, reason: `Couldn't reach Turno: ${msg}` };
+  }
 }
 
 export function buildApp(opts: StartOpts): express.Express {
@@ -47,12 +80,11 @@ export function buildApp(opts: StartOpts): express.Express {
   });
 
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok", server: "turno-mcp", tenants: opts.store.list().length });
+    res.json({ status: "ok", server: "turno-mcp" });
   });
 
-  // Rate-limit the tenant-creation endpoints so a leaked URL can't be
-  // sprayed to grow tenants.json without bound. 5 writes/hour/IP is
-  // plenty for legitimate onboarding — real enrollment is once-ever.
+  // Rate-limit the bearer-issuing endpoints. Each call makes a real
+  // outbound /userinfo request to Turno, so bounded requests still matter.
   const enrollLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
     limit: 5,
@@ -71,7 +103,7 @@ export function buildApp(opts: StartOpts): express.Express {
       res.setHeader("Content-Type", "text/html; charset=utf-8").status(200).send(enrollForm());
     });
 
-    app.post("/enroll", enrollLimiter, (req, res) => {
+    app.post("/enroll", enrollLimiter, async (req, res) => {
       const label = String(req.body?.label ?? "").trim();
       const apiToken = String(req.body?.api_token ?? "").trim();
       const partnerId = String(req.body?.partner_id ?? "").trim();
@@ -80,7 +112,6 @@ export function buildApp(opts: StartOpts): express.Express {
         config.TURNO_BASE_URL;
 
       const errors: string[] = [];
-      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!label) errors.push("Label is required");
       if (!apiToken) errors.push("Secret Key is required");
       if (!partnerId) errors.push("Partner ID is required");
@@ -95,80 +126,112 @@ export function buildApp(opts: StartOpts): express.Express {
         return;
       }
 
-      try {
-        const { bearer } = opts.store.createWithApiToken({
-          label,
-          apiToken,
-          partnerId: partnerId || undefined,
-          baseUrl,
-        });
-        opts.logger.info({ label, baseUrl }, "tenant enrolled");
+      const check = await validateTurnoCredentials({
+        partnerId,
+        secretKey: apiToken,
+        baseUrl,
+        logger: opts.logger,
+      });
+      if (!check.ok) {
         res
           .setHeader("Content-Type", "text/html; charset=utf-8")
-          .status(200)
-          .send(enrollSuccess(bearer, opts.publicHost));
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        res
-          .setHeader("Content-Type", "text/html; charset=utf-8")
-          .status(500)
-          .send(enrollError(msg));
+          .status(400)
+          .send(enrollForm(check.reason));
+        return;
       }
+
+      const bearer = signBearer({
+        partnerId,
+        secretKey: apiToken,
+        baseUrl,
+        ttlSeconds: BEARER_TTL_SECONDS,
+      });
+      opts.logger.info({ label, baseUrl, partnerId }, "bearer issued via /enroll");
+      res
+        .setHeader("Content-Type", "text/html; charset=utf-8")
+        .status(200)
+        .send(enrollSuccess(bearer, opts.publicHost));
     });
 
     /**
-     * Programmatic enrollment for non-browser flows (e.g. an OAuth
-     * client_credentials–style automation). Accepts JSON + returns JSON.
-     * Treats the Turno API token + partner ID as the "client credentials".
+     * OAuth 2.0 client_credentials grant. Lets OAuth-aware MCP clients
+     * (claude.ai custom connectors, etc.) exchange (Partner ID, Secret Key)
+     * for an MCP bearer without the user visiting /enroll manually.
+     *
+     * - `client_id`     = Turno Partner ID (UUID)
+     * - `client_secret` = Turno Secret Key (JWT)
+     * - Also accepts HTTP Basic auth as per RFC 6749
+     * - Legacy alias: `grant_type=api_token` with `api_token` + `partner_id`
      */
-    app.post("/token", enrollLimiter, (req, res) => {
+    app.post("/token", enrollLimiter, async (req, res) => {
       const grant = String(req.body?.grant_type ?? "");
-      if (grant !== "api_token") {
+      if (grant !== "client_credentials" && grant !== "api_token") {
         res.status(400).json({
           error: "unsupported_grant_type",
           error_description:
-            "Only grant_type=api_token is supported today. OAuth authorization_code is scaffolded for a future release.",
+            "Supported grants: client_credentials, api_token.",
         });
         return;
       }
-      const label = String(req.body?.label ?? req.body?.client_id ?? "api").trim();
-      const apiToken = String(req.body?.api_token ?? req.body?.client_secret ?? "").trim();
-      const partnerId = String(req.body?.partner_id ?? "").trim();
+
+      const basic = parseBasicAuth(req);
+      const clientId = String(
+        req.body?.client_id ?? req.body?.partner_id ?? basic?.id ?? "",
+      ).trim();
+      const clientSecret = String(
+        req.body?.client_secret ?? req.body?.api_token ?? basic?.secret ?? "",
+      ).trim();
       const baseUrl =
         String(req.body?.base_url ?? config.TURNO_BASE_URL).trim().replace(/\/+$/, "") ||
         config.TURNO_BASE_URL;
 
-      const TOK_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (!apiToken) {
+      if (!clientSecret) {
         res.status(400).json({
           error: "invalid_request",
-          error_description: "api_token is required",
+          error_description: "client_secret (Turno Secret Key) is required",
         });
         return;
       }
-      if (!partnerId || !TOK_UUID_RE.test(partnerId)) {
+      if (!clientId || !UUID_RE.test(clientId)) {
         res.status(400).json({
           error: "invalid_request",
-          error_description: "partner_id (UUID, from the bottom of the Turno Tokens page) is required",
+          error_description:
+            "client_id (Turno Partner ID UUID, from the bottom of the Tokens page) is required",
         });
         return;
       }
-      const { bearer } = opts.store.createWithApiToken({
-        label,
-        apiToken,
-        partnerId,
+
+      const check = await validateTurnoCredentials({
+        partnerId: clientId,
+        secretKey: clientSecret,
         baseUrl,
+        logger: opts.logger,
       });
+      if (!check.ok) {
+        res.status(check.status >= 500 ? 502 : 401).json({
+          error: "invalid_grant",
+          error_description: check.reason,
+        });
+        return;
+      }
+
+      const bearer = signBearer({
+        partnerId: clientId,
+        secretKey: clientSecret,
+        baseUrl,
+        ttlSeconds: BEARER_TTL_SECONDS,
+      });
+      opts.logger.info({ baseUrl, partnerId: clientId, grant }, "bearer issued via /token");
       res.json({
         access_token: bearer,
         token_type: "Bearer",
-        expires_in: 31_536_000,
+        expires_in: BEARER_TTL_SECONDS,
       });
     });
   }
 
   // ─── MCP transport ────────────────────────────────────────────────────
-  const auth = buildBearerAuth({ store: opts.store, registry: opts.registry });
+  const auth = buildBearerAuth({ logger: opts.logger });
 
   app.post("/mcp", auth, async (req, res) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
@@ -230,6 +293,28 @@ export function buildApp(opts: StartOpts): express.Express {
 
   return app;
 }
+
+function parseBasicAuth(req: express.Request): { id: string; secret: string } | null {
+  const h = req.headers.authorization;
+  if (!h || typeof h !== "string") return null;
+  const m = h.match(/^Basic\s+(.+)$/i);
+  if (!m) return null;
+  try {
+    const decoded = Buffer.from(m[1], "base64").toString("utf8");
+    const idx = decoded.indexOf(":");
+    if (idx < 0) return null;
+    return {
+      id: decodeURIComponent(decoded.slice(0, idx)),
+      secret: decodeURIComponent(decoded.slice(idx + 1)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Silence unused import warning — the enrollError page is kept for future
+// surface area (e.g. catching server-internal exceptions) but isn't wired yet.
+void enrollError;
 
 export function listen(opts: StartOpts): void {
   const app = buildApp(opts);

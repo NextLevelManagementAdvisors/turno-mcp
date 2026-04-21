@@ -1,10 +1,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { mkdirSync } from "node:fs";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
-import { TenantStore } from "./tenants.js";
-import { TenantRegistry } from "./tenant-registry.js";
 import { TurnoClient } from "./turno-client.js";
 import { registerTools } from "./tools/register.js";
 import { listen as listenHttp } from "./http-server.js";
@@ -18,24 +15,15 @@ async function main(): Promise<void> {
       console.error("TURNO_ENCRYPTION_KEY must be set and at least 32 chars when TRANSPORT=http");
       process.exit(1);
     }
-    mkdirSync(config.TURNO_DATA_DIR, { recursive: true });
-
-    const store = new TenantStore(config.TURNO_TENANTS_FILE);
-    store.load();
-    logger.info({ tenantCount: store.list().length }, "Loaded tenants");
-
-    const registry = new TenantRegistry({ store, logger });
 
     listenHttp({
       host: config.HOST,
       port: config.PORT,
       publicHost: config.PUBLIC_HOST,
-      store,
-      registry,
       enrollEnabled: config.ENROLL_ENABLED,
       logger,
     });
-    logger.info({ port: config.PORT }, "turno-mcp started (http)");
+    logger.info({ port: config.PORT }, "turno-mcp started (http, stateless JWT auth)");
     return;
   }
 

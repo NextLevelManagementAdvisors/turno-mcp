@@ -205,17 +205,23 @@ export function enrollSuccess(bearer: string, publicHost: string): string {
   return `<!doctype html><html><head><meta charset="utf-8">
 <title>Turno MCP — enrolled</title><style>${baseCss}</style></head><body>
 <h1>You're enrolled</h1>
-<div class="ok">Save this bearer token now — it will not be shown again.</div>
+<div class="ok">Your Turno credentials were validated — a bearer has been
+signed and returned below. Save it now; for security we don't store it.</div>
 
 <h2>Bearer token</h2>
-<pre>${escapeHtml(bearer)}</pre>
+<p class="muted">Self-contained signed JWT (valid for 24 h, re-issuable anytime
+from <code>/enroll</code> or <code>/token</code> with the same credentials).</p>
+<pre style="white-space:pre-wrap;word-break:break-all">${escapeHtml(bearer)}</pre>
 
 <h2>MCP endpoint</h2>
 <pre>${escapeHtml(mcpUrl)}</pre>
 
 <h2>Wire up an MCP client</h2>
 <p class="muted">Add an <code>mcp-remote</code> connection pointing at the MCP endpoint with this bearer in the <code>Authorization</code> header, e.g.:</p>
-<pre>mcp-remote ${escapeHtml(mcpUrl)} --header "Authorization: Bearer ${escapeHtml(bearer)}"</pre>
+<pre style="white-space:pre-wrap;word-break:break-all">mcp-remote ${escapeHtml(mcpUrl)} --header "Authorization: Bearer ${escapeHtml(bearer)}"</pre>
+
+<p class="muted">See <a href="/">the home page</a> for client-specific snippets
+(claude.ai, Claude Desktop, Claude Code, Cursor).</p>
 </body></html>`;
 }
 
