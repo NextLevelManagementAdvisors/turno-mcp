@@ -15,11 +15,18 @@ function b64urlDecode(s: string): Buffer {
   return Buffer.from(padded.replace(/-/g, "+").replace(/_/g, "/"), "base64");
 }
 
+export type TokenType = "access" | "refresh" | "code";
+
 interface InnerPayload {
   pid: string;
   b: string;
   ek: { iv: string; tag: string; ct: string };
   exp: number;
+  typ?: TokenType;
+  // OAuth auth-code flow extras (only present when typ === "code")
+  ru?: string; // redirect_uri
+  cc?: string; // code_challenge (S256)
+  ci?: string; // client_id
 }
 
 export interface BearerClaims {
@@ -27,9 +34,20 @@ export interface BearerClaims {
   secretKey: string;
   baseUrl: string;
   exp: number;
+  typ: TokenType;
+  redirectUri?: string;
+  codeChallenge?: string;
+  clientId?: string;
 }
 
 export class BearerError extends Error {}
+
+function sign(payload: InnerPayload): string {
+  const body = b64urlEncode(Buffer.from(JSON.stringify(payload)));
+  const signingInput = `${HEADER_B64}.${body}`;
+  const sig = createHmac("sha256", deriveKey(HMAC_INFO)).update(signingInput).digest();
+  return `${signingInput}.${b64urlEncode(sig)}`;
+}
 
 /**
  * Produce a self-contained signed bearer that carries the Turno
@@ -45,9 +63,10 @@ export function signBearer(opts: {
   secretKey: string;
   baseUrl: string;
   ttlSeconds?: number;
+  typ?: "access" | "refresh";
 }): string {
   const ek = encryptSecret(opts.secretKey);
-  const payload: InnerPayload = {
+  return sign({
     pid: opts.partnerId,
     b: opts.baseUrl,
     ek: {
@@ -56,16 +75,44 @@ export function signBearer(opts: {
       ct: ek.ciphertext.toString("hex"),
     },
     exp: Math.floor(Date.now() / 1000) + (opts.ttlSeconds ?? 86_400),
-  };
-  const body = b64urlEncode(Buffer.from(JSON.stringify(payload)));
-  const signingInput = `${HEADER_B64}.${body}`;
-  const sig = createHmac("sha256", deriveKey(HMAC_INFO))
-    .update(signingInput)
-    .digest();
-  return `${signingInput}.${b64urlEncode(sig)}`;
+    typ: opts.typ ?? "access",
+  });
 }
 
-export function verifyBearer(token: string): BearerClaims {
+/**
+ * One-time authorization code for the OAuth 2.1 authorization_code flow.
+ * Carries the credentials encrypted + the PKCE challenge + redirect_uri
+ * so the subsequent /oauth/token exchange can verify everything without
+ * any server-side state. TTL is short (default 60s) — claude.ai redeems
+ * within seconds.
+ */
+export function signAuthCode(opts: {
+  partnerId: string;
+  secretKey: string;
+  baseUrl: string;
+  redirectUri: string;
+  codeChallenge: string;
+  clientId: string;
+  ttlSeconds?: number;
+}): string {
+  const ek = encryptSecret(opts.secretKey);
+  return sign({
+    pid: opts.partnerId,
+    b: opts.baseUrl,
+    ek: {
+      iv: ek.iv.toString("hex"),
+      tag: ek.tag.toString("hex"),
+      ct: ek.ciphertext.toString("hex"),
+    },
+    exp: Math.floor(Date.now() / 1000) + (opts.ttlSeconds ?? 60),
+    typ: "code",
+    ru: opts.redirectUri,
+    cc: opts.codeChallenge,
+    ci: opts.clientId,
+  });
+}
+
+export function verifyBearer(token: string, expectedTyp?: TokenType): BearerClaims {
   const parts = token.split(".");
   if (parts.length !== 3) throw new BearerError("malformed bearer");
   const [header, body, sigB] = parts;
@@ -91,6 +138,13 @@ export function verifyBearer(token: string): BearerClaims {
     throw new BearerError("missing claims");
   }
 
+  // Pre-typ tokens (issued before this refactor) are treated as "access" so
+  // existing bearers keep working through rollout.
+  const typ: TokenType = (payload.typ as TokenType) ?? "access";
+  if (expectedTyp && typ !== expectedTyp) {
+    throw new BearerError(`expected typ=${expectedTyp}, got ${typ}`);
+  }
+
   let secretKey: string;
   try {
     secretKey = decryptSecret({
@@ -107,5 +161,9 @@ export function verifyBearer(token: string): BearerClaims {
     secretKey,
     baseUrl: payload.b,
     exp: payload.exp,
+    typ,
+    redirectUri: payload.ru,
+    codeChallenge: payload.cc,
+    clientId: payload.ci,
   };
 }

@@ -27,13 +27,20 @@ function extractBearer(req: Request): string | null {
 
 export interface BearerAuthOpts {
   logger: Logger;
+  publicHost: string;
 }
 
 export function buildBearerAuth(opts: BearerAuthOpts) {
+  const resourceMetadataUrl = `https://${opts.publicHost}/.well-known/oauth-protected-resource`;
+  // RFC 9728 / MCP spec: clients discover the authorization server from
+  // this header on any 401. Must include resource_metadata or spec-compliant
+  // clients (claude.ai, etc.) won't know where to start the OAuth flow.
+  const wwwAuth = `Bearer realm="Turno MCP", resource_metadata="${resourceMetadataUrl}"`;
+
   return (req: Request, res: Response, next: NextFunction): void => {
     const token = extractBearer(req);
     if (!token) {
-      res.setHeader("WWW-Authenticate", 'Bearer realm="Turno MCP"');
+      res.setHeader("WWW-Authenticate", wwwAuth);
       res.status(401).json({
         error: "unauthorized",
         error_description: "Valid bearer token required",
@@ -41,7 +48,8 @@ export function buildBearerAuth(opts: BearerAuthOpts) {
       return;
     }
     try {
-      const claims = verifyBearer(token);
+      // Accept only access tokens on /mcp — refresh tokens must go to /token.
+      const claims = verifyBearer(token, "access");
       req.partnerId = claims.partnerId;
       req.toolCtx = getToolContext({
         partnerId: claims.partnerId,
@@ -52,7 +60,7 @@ export function buildBearerAuth(opts: BearerAuthOpts) {
       next();
     } catch (err) {
       const msg = err instanceof BearerError ? err.message : "invalid bearer";
-      res.setHeader("WWW-Authenticate", 'Bearer realm="Turno MCP"');
+      res.setHeader("WWW-Authenticate", wwwAuth);
       res.status(401).json({
         error: "unauthorized",
         error_description: msg,

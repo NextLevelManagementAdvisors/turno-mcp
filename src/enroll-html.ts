@@ -335,6 +335,83 @@ Cursor, or raw <code>mcp-remote</code>.</p>
 </body></html>`;
 }
 
+export function oauthConsentForm(opts: {
+  clientId: string;
+  redirectUri: string;
+  state: string;
+  codeChallenge: string;
+  codeChallengeMethod: string;
+  err?: string;
+}): string {
+  const hidden = (name: string, value: string) =>
+    `<input type="hidden" name="${name}" value="${escapeHtml(value)}">`;
+  return `<!doctype html><html><head><meta charset="utf-8">
+<title>Turno MCP — authorize</title><style>${baseCss}
+  .steps { background: #f7f7f7; border-left: 3px solid #EF5B25;
+           padding: 0.8rem 1rem; border-radius: 6px; margin: 1.2rem 0; }
+  .steps ol { margin: 0.3rem 0 0 1.1rem; padding: 0; }
+  .steps li { margin: 0.35rem 0; font-size: 0.95rem; }
+  .field-hint { display: block; margin-top: 0.2rem; font-size: 0.85rem; color: #777; }
+  .who { padding: 0.6rem 0.9rem; background: #eef5ff; border-radius: 6px;
+         margin: 1rem 0; font-size: 0.9rem; }
+</style></head><body>
+<h1>Authorize Turno MCP</h1>
+
+<div class="who">
+  An MCP client (<code>${escapeHtml(opts.clientId)}</code>) wants to call
+  Turno on your behalf. Paste your Turno credentials below — they'll be
+  validated against Turno and then embedded (encrypted) into the access
+  token the client receives. Nothing is persisted server-side.
+</div>
+
+<div class="steps">
+  <strong>Need to find these? In Turno:</strong>
+  <ol>
+    <li><a href="https://turno.com" target="_blank" rel="noopener">turno.com</a> → <strong>Settings → API → Tokens</strong></li>
+    <li><strong>"Create New Token"</strong> — copy the long <code>eyJ…</code> Secret Key <em>now</em> (Turno only shows it once)</li>
+    <li>Scroll to the bottom of the same page for <em>"Here is your Partner ID:"</em></li>
+  </ol>
+</div>
+
+${opts.err ? `<div class="err">${escapeHtml(opts.err)}</div>` : ""}
+
+<form method="post" action="/oauth/authorize">
+  ${hidden("client_id", opts.clientId)}
+  ${hidden("redirect_uri", opts.redirectUri)}
+  ${hidden("state", opts.state)}
+  ${hidden("code_challenge", opts.codeChallenge)}
+  ${hidden("code_challenge_method", opts.codeChallengeMethod)}
+
+  <label for="api_token">Secret Key</label>
+  <textarea id="api_token" name="api_token" required rows="4"
+    autocomplete="off" spellcheck="false"
+    style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:0.85rem"
+    placeholder="eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9…"></textarea>
+
+  <label for="partner_id">Partner ID</label>
+  <input id="partner_id" name="partner_id" required
+    pattern="[0-9a-fA-F-]{36}" autocomplete="off"
+    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+  <span class="field-hint">UUID from the bottom of the Tokens page.</span>
+
+  <details>
+    <summary>Advanced — use sandbox / custom base URL</summary>
+    <label for="base_url" style="margin-top: 0.5rem">Base URL</label>
+    <select id="base_url" name="base_url">
+      <option value="https://api.turnoverbnb.com/v2" selected>Production — api.turnoverbnb.com/v2</option>
+      <option value="https://sandbox.turnoverbnb.com/v2">Sandbox — sandbox.turnoverbnb.com/v2</option>
+    </select>
+  </details>
+
+  <button type="submit">Authorize &rarr;</button>
+</form>
+
+<p class="muted" style="margin-top: 1.5rem; font-size: 0.85rem;">
+  Declined? Just close this tab — no code is issued until you submit.
+</p>
+</body></html>`;
+}
+
 export function enrollError(msg: string): string {
   return `<!doctype html><html><head><meta charset="utf-8">
 <title>Turno MCP — error</title><style>${baseCss}</style></head><body>
