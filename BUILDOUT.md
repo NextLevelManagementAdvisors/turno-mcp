@@ -115,11 +115,18 @@ rotate `TURNO_ENCRYPTION_KEY` (invalidates everyone's bearer).
   `tools/call turno_get_userinfo` (mocked data round-trips) → 401
   on unknown bearer. Cleans up: restores fetch, closes server. Runs
   in ~650ms.
-- [x] **GitHub Actions.** [S — done 2026-04-21]
-  `.github/workflows/ci.yml` runs on push + pull_request to main: npm ci
-  → typecheck → test → build. Node 20, npm cache enabled. No secrets
-  needed (tests mock outbound fetch). The workflow itself fires on
-  landing too, so this commit will produce the first green check.
+> BLOCKED: workflow file is committed and valid
+> (`.github/workflows/ci.yml`, Node 20, typecheck + test + build, no
+> secrets required) — but every run lands as `startup_failure` with no
+> logs and `rerequestable: false`. The file itself parses; this is an
+> org-level restriction. Unblock: either enable GitHub Actions for
+> private repos under the `NextLevelManagementAdvisors` org settings,
+> or check the org's Actions minute budget. Once that's cleared, the
+> workflow will run on the next push with zero code changes needed.
+- [ ] **GitHub Actions.** [S]
+  `.github/workflows/ci.yml` — `npm ci && npm run typecheck && npm test` on
+  PRs to `main`. Matches the "private repo, single-developer" reality —
+  cheap insurance.
 
 ## Phase 6 — Polish
 
