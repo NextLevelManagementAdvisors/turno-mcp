@@ -96,12 +96,14 @@ credentials are never persisted server-side.</p>
         <button data-tab="oauth">OAuth (scripted)</button>
       </div>
       <div class="tab-pane active" id="tab-claudeai">
-        <p class="muted">Settings &rarr; Connectors &rarr; Add custom connector.
-        claude.ai's web UI doesn't expose custom headers, so paste the bearer
-        as a <code>?token=</code> query parameter:</p>
-        <pre>${escapeHtml(mcpUrl)}?token=eyJhbGciOiJIUzI1NiJ9.PASTE_WHOLE_JWT_HERE</pre>
-        <p class="muted">The server accepts the bearer in either the URL or
-        an <code>Authorization: Bearer</code> header.</p>
+        <p class="muted"><strong>Settings &rarr; Connectors &rarr; Add custom
+        connector.</strong> Paste the plain endpoint URL — claude.ai auto-discovers
+        our OAuth config, opens a consent form where you paste your Turno
+        credentials, and manages token refresh forever after:</p>
+        <pre>${escapeHtml(mcpUrl)}</pre>
+        <p class="muted">No <code>?token=</code> suffix. claude.ai walks through
+        OAuth 2.1 + PKCE automatically via <a href="/.well-known/oauth-authorization-server">
+        our metadata</a> and never asks you again after the first consent.</p>
       </div>
       <div class="tab-pane" id="tab-desktop">
         <p class="muted">In <code>~/.claude_desktop_config.json</code> (Mac) or
