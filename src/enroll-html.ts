@@ -206,56 +206,132 @@ credentials are never persisted server-side.</p>
 
 export function enrollForm(err?: string): string {
   return `<!doctype html><html><head><meta charset="utf-8">
-<title>Turno MCP — enroll</title><style>${baseCss}</style></head><body>
-<h1>Turno MCP enrollment</h1>
-<p class="muted">Paste your Turno <strong>Secret Key</strong> (the JWT shown in
-<em>Turno &gt; API &gt; Tokens &gt; Create New Token</em>). It's encrypted at rest
-with AES-256-GCM and only decrypted in memory when the server makes API calls
-on your behalf.</p>
+<title>Turno MCP — enroll</title><style>${baseCss}
+  .steps { background: #f7f7f7; border-left: 3px solid #EF5B25;
+           padding: 0.8rem 1rem; border-radius: 6px; margin: 1.2rem 0; }
+  .steps ol { margin: 0.3rem 0 0 1.1rem; padding: 0; }
+  .steps li { margin: 0.35rem 0; font-size: 0.95rem; }
+  .steps a { color: #EF5B25; }
+  details { margin-top: 1.2rem; }
+  details summary { cursor: pointer; color: #777; font-size: 0.9rem; }
+  details[open] summary { color: #333; }
+  .field-hint { display: block; margin-top: 0.2rem; font-size: 0.85rem; color: #777; }
+</style></head><body>
+<h1>Get a bearer</h1>
+<p class="muted">We trade two values from Turno for a 24-hour bearer JWT.
+Nothing's stored server-side — your credentials get encrypted into the
+bearer itself and only decrypted in memory on each API call.</p>
+
+<div class="steps">
+  <strong>Before you start — find these two values in Turno:</strong>
+  <ol>
+    <li>Log in at <a href="https://turno.com" target="_blank" rel="noopener">turno.com</a> → open <strong>Settings → API → Tokens</strong>.</li>
+    <li>Click <strong>"Create New Token"</strong>. Copy the long <code>eyJ…</code>
+      <strong>Secret Key</strong> <em>now</em> — Turno only shows it once.</li>
+    <li>On the same page, scroll to the bottom for <em>"Here is your Partner ID:"</em>
+      — copy that UUID too.</li>
+  </ol>
+</div>
+
 ${err ? `<div class="err">${escapeHtml(err)}</div>` : ""}
+
 <form method="post" action="/enroll">
-  <label for="label">Label <span class="muted">(a name for this tenant, e.g. your company)</span></label>
-  <input id="label" name="label" required maxlength="100" autocomplete="organization">
+  <label for="api_token">Secret Key</label>
+  <textarea id="api_token" name="api_token" required rows="4"
+    autocomplete="off" spellcheck="false"
+    style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:0.85rem"
+    placeholder="eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9…"></textarea>
+  <span class="field-hint">The whole JWT — paste everything between the dots.</span>
 
-  <label for="api_token">Secret Key <span class="muted">(the long <code>eyJ…</code> JWT from the Turno Tokens page)</span></label>
-  <textarea id="api_token" name="api_token" required rows="4" autocomplete="off" spellcheck="false" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:0.85rem"></textarea>
+  <label for="partner_id">Partner ID</label>
+  <input id="partner_id" name="partner_id" required
+    pattern="[0-9a-fA-F-]{36}" autocomplete="off"
+    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+  <span class="field-hint">UUID from the bottom of the Tokens page.</span>
 
-  <label for="partner_id">Partner ID <span class="muted">(required — UUID labeled "Here is your Partner ID:" at the bottom of the Turno Tokens page)</span></label>
-  <input id="partner_id" name="partner_id" required pattern="[0-9a-fA-F-]{36}" autocomplete="off" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+  <details>
+    <summary>Advanced — use sandbox / custom base URL</summary>
+    <label for="base_url" style="margin-top: 0.5rem">Base URL</label>
+    <select id="base_url" name="base_url">
+      <option value="https://api.turnoverbnb.com/v2" selected>Production — api.turnoverbnb.com/v2</option>
+      <option value="https://sandbox.turnoverbnb.com/v2">Sandbox — sandbox.turnoverbnb.com/v2</option>
+    </select>
+  </details>
 
-  <label for="base_url">Base URL</label>
-  <select id="base_url" name="base_url">
-    <option value="https://api.turnoverbnb.com/v2" selected>Production — https://api.turnoverbnb.com/v2</option>
-    <option value="https://sandbox.turnoverbnb.com/v2">Sandbox — https://sandbox.turnoverbnb.com/v2</option>
-  </select>
-
-  <button type="submit">Create tenant &amp; issue bearer</button>
+  <button type="submit">Get my bearer &rarr;</button>
 </form>
+
+<p class="muted" style="margin-top: 1.5rem; font-size: 0.85rem;">
+  We validate your Secret Key with a live <code>GET /v2/userinfo</code> call
+  before issuing the bearer — you'll see an error here (not a mystery 401 later)
+  if something's wrong. After this, see <a href="/">the home page</a> for
+  client wiring snippets.
+</p>
 </body></html>`;
 }
 
 export function enrollSuccess(bearer: string, publicHost: string): string {
   const mcpUrl = `https://${publicHost}/mcp`;
+  const urlWithToken = `${mcpUrl}?token=${encodeURIComponent(bearer)}`;
   return `<!doctype html><html><head><meta charset="utf-8">
-<title>Turno MCP — enrolled</title><style>${baseCss}</style></head><body>
-<h1>You're enrolled</h1>
-<div class="ok">Your Turno credentials were validated — a bearer has been
-signed and returned below. Save it now; for security we don't store it.</div>
+<title>Turno MCP — bearer ready</title><style>${baseCss}
+  .copy-row { display: flex; gap: 0.5rem; align-items: flex-start; margin: 0.5rem 0 1rem; }
+  .copy-row pre { flex: 1; margin: 0; }
+  .copy-btn { align-self: stretch; padding: 0 1rem; background: #EF5B25;
+              color: white; border: 0; border-radius: 6px; cursor: pointer;
+              font-size: 0.85rem; font-weight: 600; }
+  .copy-btn.copied { background: #3a6; }
+</style></head><body>
+<h1>Bearer ready</h1>
+<div class="ok">Credentials validated against Turno. The bearer below is
+signed, carries your (encrypted) Secret Key + Partner ID inside, and expires
+in 24&nbsp;hours. Copy it now — we're stateless, so we can't show it to you
+again.</div>
 
-<h2>Bearer token</h2>
-<p class="muted">Self-contained signed JWT (valid for 24 h, re-issuable anytime
-from <code>/enroll</code> or <code>/token</code> with the same credentials).</p>
-<pre style="white-space:pre-wrap;word-break:break-all">${escapeHtml(bearer)}</pre>
+<h2>Bearer (paste into your MCP client)</h2>
+<div class="copy-row">
+  <pre id="bearer" style="white-space:pre-wrap;word-break:break-all">${escapeHtml(bearer)}</pre>
+  <button class="copy-btn" data-copy="bearer">Copy</button>
+</div>
 
-<h2>MCP endpoint</h2>
-<pre>${escapeHtml(mcpUrl)}</pre>
+<h2>Or — claude.ai one-URL form</h2>
+<p class="muted">For claude.ai custom connectors, the bearer rides as a
+<code>?token=</code> query param since the UI doesn't let you set headers:</p>
+<div class="copy-row">
+  <pre id="tokenurl" style="white-space:pre-wrap;word-break:break-all">${escapeHtml(urlWithToken)}</pre>
+  <button class="copy-btn" data-copy="tokenurl">Copy</button>
+</div>
 
-<h2>Wire up an MCP client</h2>
-<p class="muted">Add an <code>mcp-remote</code> connection pointing at the MCP endpoint with this bearer in the <code>Authorization</code> header, e.g.:</p>
-<pre style="white-space:pre-wrap;word-break:break-all">mcp-remote ${escapeHtml(mcpUrl)} --header "Authorization: Bearer ${escapeHtml(bearer)}"</pre>
+<h2>Next</h2>
+<p class="muted">Head back to <a href="/">the home page</a> for the exact
+config snippet for your client — claude.ai, Claude Desktop, Claude Code,
+Cursor, or raw <code>mcp-remote</code>.</p>
+<p class="muted" style="font-size: 0.85rem;">
+  When the bearer expires (24 h), just come back here or use
+  <code>POST /token</code> with <code>grant_type=client_credentials</code>
+  to mint a fresh one from the same Turno credentials.
+</p>
 
-<p class="muted">See <a href="/">the home page</a> for client-specific snippets
-(claude.ai, Claude Desktop, Claude Code, Cursor).</p>
+<script>
+  document.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-copy');
+      const text = document.getElementById(id).innerText;
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = 'Copied';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+      } catch (e) {
+        // Fallback: select the text for manual copy
+        const range = document.createRange();
+        range.selectNodeContents(document.getElementById(id));
+        getSelection().removeAllRanges();
+        getSelection().addRange(range);
+      }
+    });
+  });
+</script>
 </body></html>`;
 }
 

@@ -120,7 +120,6 @@ export function buildApp(opts: StartOpts): express.Express {
     });
 
     app.post("/enroll", enrollLimiter, async (req, res) => {
-      const label = String(req.body?.label ?? "").trim();
       const apiToken = String(req.body?.api_token ?? "").trim();
       const partnerId = String(req.body?.partner_id ?? "").trim();
       const baseUrl =
@@ -128,7 +127,6 @@ export function buildApp(opts: StartOpts): express.Express {
         config.TURNO_BASE_URL;
 
       const errors: string[] = [];
-      if (!label) errors.push("Label is required");
       if (!apiToken) errors.push("Secret Key is required");
       if (!partnerId) errors.push("Partner ID is required");
       else if (!UUID_RE.test(partnerId)) errors.push("Partner ID must be a UUID");
@@ -162,7 +160,7 @@ export function buildApp(opts: StartOpts): express.Express {
         baseUrl,
         ttlSeconds: BEARER_TTL_SECONDS,
       });
-      opts.logger.info({ label, baseUrl, partnerId }, "bearer issued via /enroll");
+      opts.logger.info({ baseUrl, partnerId }, "bearer issued via /enroll");
       res
         .setHeader("Content-Type", "text/html; charset=utf-8")
         .status(200)
