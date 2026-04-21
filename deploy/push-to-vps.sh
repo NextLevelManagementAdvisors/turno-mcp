@@ -10,6 +10,7 @@ set -euo pipefail
 HOST="${1:-root@178.16.141.166}"
 REMOTE_DIR="/opt/turno-mcp"
 SERVICE_NAME="turno-mcp"
+PUBLIC_HOST="${TURNO_PUBLIC_HOST:-turno.nlma.io}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -59,4 +60,4 @@ systemctl --no-pager --lines=5 status ${SERVICE_NAME} || true
 EOF
 
 rm -f "$TARBALL"
-echo "→ done. hit https://turno.nlma.io/health to verify."
+echo "→ done. hit https://$PUBLIC_HOST/health to verify."
