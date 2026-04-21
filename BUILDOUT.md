@@ -53,7 +53,10 @@ polish. Tick boxes as items land. Effort: **S** ≤30 min, **M** 1–3 h, **L** 
   (in-memory record set by `TurnoClient` on any non-ok response). Missing
   cert file = field omitted (dev boxes stay quiet). Verified live:
   `cert_expires_at: 2026-07-19T08:54:07.000Z`.
-- [ ] **Bump HSTS to one year** in nginx once a week of stability is logged. [S]
+- [ ] **Bump HSTS to one year** in nginx once a week of stability is logged. [S, manual]
+  Nginx config on the VPS — outside the automated skill's scope. When
+  ready (~1 week after 2026-04-20 deploy):
+  `ssh root@178.16.141.166 "sed -i 's|max-age=300|max-age=31536000|' /etc/nginx/sites-available/turno.nlma.io && nginx -t && systemctl reload nginx"`
 
 ## Phase 3 — ~~Tenant lifecycle~~ [obsoleted by Phase 0]
 
