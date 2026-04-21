@@ -1,4 +1,5 @@
 import type { Logger } from "./logger.js";
+import { recordOutboundError } from "./health-state.js";
 
 export class TurnoApiError extends Error {
   constructor(
@@ -113,6 +114,7 @@ export class TurnoClient {
     );
 
     if (!res.ok) {
+      recordOutboundError({ status: res.status, path });
       throw new TurnoApiError(res.status, parsed, method, path);
     }
     return parsed as T;

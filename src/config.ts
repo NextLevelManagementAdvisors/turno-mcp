@@ -21,6 +21,12 @@ export const config = {
   // Turno API
   TURNO_BASE_URL: (process.env.TURNO_BASE_URL ?? "https://api.turnoverbnb.com/v2").replace(/\/+$/, ""),
 
+  // TLS cert path for /health surface — derived from PUBLIC_HOST so it tracks
+  // the Let's Encrypt convention. Override via env if the cert lives elsewhere.
+  TURNO_CERT_PATH:
+    process.env.TURNO_CERT_PATH ??
+    `/etc/letsencrypt/live/${process.env.TURNO_PUBLIC_HOST ?? "turno.nlma.io"}/cert.pem`,
+
   // stdio mode
   TURNO_API_TOKEN: process.env.TURNO_API_TOKEN ?? "",
   TURNO_PARTNER_ID: process.env.TURNO_PARTNER_ID ?? "",

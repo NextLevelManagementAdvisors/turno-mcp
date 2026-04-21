@@ -11,6 +11,12 @@ import { registerTools } from "./tools/register.js";
 import { TurnoClient, TurnoApiError } from "./turno-client.js";
 import { enrollError, enrollForm, enrollSuccess, landingPage } from "./enroll-html.js";
 import { config } from "./config.js";
+import { getCertInfo } from "./cert-info.js";
+import {
+  getLastOutboundError,
+  SERVER_NAME,
+  SERVER_VERSION,
+} from "./health-state.js";
 
 interface StartOpts {
   host: string;
@@ -80,7 +86,16 @@ export function buildApp(opts: StartOpts): express.Express {
   });
 
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok", server: "turno-mcp" });
+    const body: Record<string, unknown> = {
+      status: "ok",
+      server: SERVER_NAME,
+      version: SERVER_VERSION,
+    };
+    const cert = getCertInfo(config.TURNO_CERT_PATH, opts.logger);
+    if (cert) body.cert_expires_at = cert.expiresAt;
+    const err = getLastOutboundError();
+    if (err) body.last_outbound_error_at = err.at;
+    res.json(body);
   });
 
   // Rate-limit the bearer-issuing endpoints. Each call makes a real

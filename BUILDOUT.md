@@ -44,10 +44,15 @@ polish. Tick boxes as items land. Effort: **S** ≤30 min, **M** 1–3 h, **L** 
 - [x] ~~Validate the credential at enrollment time.~~ [done 2026-04-21 as part of Phase 0]
   Both `/enroll` and `/token` now call `GET /v2/userinfo` against the supplied
   credentials before issuing a bearer; bad creds get a 400 with a useful error.
-- [ ] **Tighten `/health` body.** [S]
-  Include `version` (from package.json), `cert_expires_at` (read from
-  `/etc/letsencrypt/live/turno.nlma.io/cert.pem` if mounted, else skip), and
-  `last_outbound_error_at` (in-memory). Useful for monitoring.
+- [x] **Tighten `/health` body.** [S — done 2026-04-21]
+  `/health` now returns `version` (from package.json via
+  [src/health-state.ts](src/health-state.ts)), `cert_expires_at` (from
+  `TURNO_CERT_PATH`, derived from `PUBLIC_HOST` so it follows the Let's
+  Encrypt convention; new [src/cert-info.ts](src/cert-info.ts) reads via
+  Node's `X509Certificate` with hourly cache), and `last_outbound_error_at`
+  (in-memory record set by `TurnoClient` on any non-ok response). Missing
+  cert file = field omitted (dev boxes stay quiet). Verified live:
+  `cert_expires_at: 2026-07-19T08:54:07.000Z`.
 - [ ] **Bump HSTS to one year** in nginx once a week of stability is logged. [S]
 
 ## Phase 3 — ~~Tenant lifecycle~~ [obsoleted by Phase 0]
