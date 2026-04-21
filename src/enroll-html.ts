@@ -46,36 +46,41 @@ export function landingPage(publicHost: string): string {
   .tab-pane.active { display: block; }
 </style></head><body>
 <h1>Turno MCP</h1>
-<p class="muted">A multi-tenant Model Context Protocol server for the
+<p class="muted">A Model Context Protocol server for the
 <a href="https://apidocs.turnoverbnb.com/">Turno (TurnoverBnB) v2 API</a>.
 Lets any MCP-enabled assistant — Claude Desktop, claude.ai, Cursor, ChatGPT,
-etc. — call all 49 Turno API tools on your behalf.</p>
+etc. — call all 49 Turno API tools on your behalf. Fully stateless: your
+credentials are never persisted server-side.</p>
 
 <h2>Setup — 4 steps</h2>
 <ol>
   <li>
     <strong>Get your Secret Key from Turno</strong>
     <div class="step-body">
-      In the Turno dashboard, go to <em>API → Tokens → "Create New Token"</em>.
+      In the Turno dashboard, open <em>API → Tokens → "Create New Token"</em>.
       The <strong>Secret Key</strong> is the long <code>eyJ…</code> JWT shown
-      <strong>once</strong> on creation. Copy it before leaving the page.
+      <strong>once</strong> on creation — copy it before leaving the page;
+      Turno won't display it again.
     </div>
   </li>
   <li>
     <strong>Get your Partner ID</strong>
     <div class="step-body">
-      Same page — scroll to the bottom for the line
-      <em>"Here is your Partner ID:"</em> followed by a UUID. Copy that too.
-      Both are required on every API call.
+      Same page — scroll all the way to the bottom for the line
+      <em>"Here is your Partner ID:"</em> followed by a UUID. Both values
+      are required on every API call.
     </div>
   </li>
   <li>
-    <strong>Enroll</strong>
+    <strong>Exchange them for a bearer</strong>
     <div class="step-body">
       <a class="pill" href="/enroll">Open the enrollment form &rarr;</a>
-      <p class="muted">You'll receive a one-time <code>trn_…</code> bearer
-      token. The Secret Key is encrypted at rest with AES-256-GCM; the
-      Partner ID is stored as plain UUID metadata.</p>
+      <p class="muted">We validate the credentials with a live Turno
+      <code>/userinfo</code> call, then return a self-contained signed JWT
+      bearer that embeds them (encrypted with an HKDF-derived AES-256-GCM
+      key). <strong>Nothing is persisted server-side.</strong> The bearer
+      is valid for 24 hours — re-issue it anytime via the form or the
+      <code>/token</code> endpoint (tab below).</p>
     </div>
   </li>
   <li>
@@ -88,14 +93,15 @@ etc. — call all 49 Turno API tools on your behalf.</p>
         <button data-tab="claudecode">Claude Code</button>
         <button data-tab="cursor">Cursor</button>
         <button data-tab="curl">mcp-remote / curl</button>
+        <button data-tab="oauth">OAuth (scripted)</button>
       </div>
       <div class="tab-pane active" id="tab-claudeai">
         <p class="muted">Settings &rarr; Connectors &rarr; Add custom connector.
-        Paste the URL with the bearer in the path:</p>
-        <pre>${escapeHtml(mcpUrl)}?token=trn_YOUR_BEARER_HERE</pre>
-        <p class="muted">(claude.ai's web UI doesn't expose custom headers, so
-        the bearer rides as a <code>?token=</code> query param. The server
-        accepts either form.)</p>
+        claude.ai's web UI doesn't expose custom headers, so paste the bearer
+        as a <code>?token=</code> query parameter:</p>
+        <pre>${escapeHtml(mcpUrl)}?token=eyJhbGciOiJIUzI1NiJ9.PASTE_WHOLE_JWT_HERE</pre>
+        <p class="muted">The server accepts the bearer in either the URL or
+        an <code>Authorization: Bearer</code> header.</p>
       </div>
       <div class="tab-pane" id="tab-desktop">
         <p class="muted">In <code>~/.claude_desktop_config.json</code> (Mac) or
@@ -108,11 +114,12 @@ etc. — call all 49 Turno API tools on your behalf.</p>
         "mcp-remote",
         "${escapeHtml(mcpUrl)}",
         "--header",
-        "Authorization: Bearer trn_YOUR_BEARER_HERE"
+        "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.PASTE_WHOLE_JWT_HERE"
       ]
     }
   }
 }</pre>
+        <p class="muted">Restart Claude Desktop after saving.</p>
       </div>
       <div class="tab-pane" id="tab-claudecode">
         <p class="muted">In <code>~/.claude/settings.json</code> under
@@ -121,7 +128,7 @@ etc. — call all 49 Turno API tools on your behalf.</p>
   "type": "http",
   "url": "${escapeHtml(mcpUrl)}",
   "headers": {
-    "Authorization": "Bearer trn_YOUR_BEARER_HERE"
+    "Authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.PASTE_WHOLE_JWT_HERE"
   }
 }</pre>
         <p class="muted">Restart Claude Code after saving.</p>
@@ -137,7 +144,7 @@ etc. — call all 49 Turno API tools on your behalf.</p>
         "mcp-remote",
         "${escapeHtml(mcpUrl)}",
         "--header",
-        "Authorization: Bearer trn_YOUR_BEARER_HERE"
+        "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.PASTE_WHOLE_JWT_HERE"
       ]
     }
   }
@@ -146,11 +153,38 @@ etc. — call all 49 Turno API tools on your behalf.</p>
       <div class="tab-pane" id="tab-curl">
         <p class="muted">For testing or non-MCP-aware tooling:</p>
         <pre>npx mcp-remote ${escapeHtml(mcpUrl)} \\
-  --header "Authorization: Bearer trn_YOUR_BEARER_HERE"</pre>
+  --header "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.PASTE_WHOLE_JWT_HERE"</pre>
+      </div>
+      <div class="tab-pane" id="tab-oauth">
+        <p class="muted">Skip the <code>/enroll</code> form and mint a bearer
+        directly from your Turno credentials. Standard RFC 6749
+        <code>client_credentials</code>:</p>
+        <pre>curl -X POST https://${escapeHtml(publicHost)}/token \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+    "grant_type":  "client_credentials",
+    "client_id":   "YOUR_TBNB_PARTNER_UUID",
+    "client_secret": "YOUR_TURNO_SECRET_KEY"
+  }'
+# → { "access_token": "eyJ…", "token_type": "Bearer", "expires_in": 86400 }</pre>
+        <p class="muted">HTTP Basic auth (<code>Authorization: Basic
+        base64(partner_id:secret_key)</code>) also works. Use this from CI
+        scripts or any tool that manages OAuth token refresh for you.</p>
       </div>
     </div>
   </li>
 </ol>
+
+<h2>Revoking a bearer</h2>
+<p class="muted">
+  There's no kill-switch on our end because there's no state to kill. To
+  invalidate a bearer:
+</p>
+<ul class="muted">
+  <li>Wait out its 24-hour TTL, <strong>or</strong></li>
+  <li>Delete the underlying Turno API token in the Turno dashboard — the
+    embedded credential stops working at the Turno layer.</li>
+</ul>
 
 <h2>Status</h2>
 <p class="muted">
