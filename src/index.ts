@@ -41,6 +41,7 @@ async function main(): Promise<void> {
     baseUrl: config.TURNO_BASE_URL,
     bearerToken: config.TURNO_API_TOKEN,
     partnerId: config.TURNO_PARTNER_ID || undefined,
+    timeoutMs: config.TURNO_REQUEST_TIMEOUT_MS,
     logger,
   });
   const toolCtx: ToolContext = { client, logger };

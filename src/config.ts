@@ -27,6 +27,10 @@ export const config = {
     process.env.TURNO_CERT_PATH ??
     `/etc/letsencrypt/live/${process.env.TURNO_PUBLIC_HOST ?? "turno.nlma.io"}/cert.pem`,
 
+  // Per-request outbound timeout. Guards against a hung Turno socket pinning
+  // a Node handler indefinitely. Each retry attempt gets its own budget.
+  TURNO_REQUEST_TIMEOUT_MS: Number(process.env.TURNO_REQUEST_TIMEOUT_MS ?? 30_000),
+
   // stdio mode
   TURNO_API_TOKEN: process.env.TURNO_API_TOKEN ?? "",
   TURNO_PARTNER_ID: process.env.TURNO_PARTNER_ID ?? "",

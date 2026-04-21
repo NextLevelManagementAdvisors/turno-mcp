@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { Logger } from "./logger.js";
 import { TurnoClient } from "./turno-client.js";
 import type { ToolContext } from "./tools/_shared.js";
+import { config } from "./config.js";
 
 const TTL_MS = 60_000;
 const MAX_ENTRIES = 200;
@@ -43,6 +44,7 @@ export function getToolContext(opts: {
     baseUrl: opts.baseUrl,
     bearerToken: opts.secretKey,
     partnerId: opts.partnerId,
+    timeoutMs: config.TURNO_REQUEST_TIMEOUT_MS,
     logger,
   });
   const ctx: ToolContext = { client, logger };

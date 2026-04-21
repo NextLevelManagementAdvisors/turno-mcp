@@ -54,6 +54,7 @@ async function validateTurnoCredentials(
     baseUrl: opts.baseUrl,
     bearerToken: opts.secretKey,
     partnerId: opts.partnerId,
+    timeoutMs: config.TURNO_REQUEST_TIMEOUT_MS,
     logger: opts.logger,
   });
   try {

@@ -27,10 +27,27 @@ export interface TurnoClientOptions {
   bearerToken: string;
   /** Optional — only sent as TBNB-Partner-ID header if non-empty. */
   partnerId?: string;
+  /** Per-attempt outbound timeout in ms. Defaults to 30s. */
+  timeoutMs?: number;
   logger?: Logger;
   /** Optional fetch override for testing. */
   fetchImpl?: typeof fetch;
 }
+
+export class TurnoNetworkError extends Error {
+  constructor(
+    public readonly method: string,
+    public readonly path: string,
+    public readonly cause: unknown,
+    public readonly timedOut: boolean,
+  ) {
+    const why = timedOut ? "timed out" : cause instanceof Error ? cause.message : String(cause);
+    super(`Turno ${method} ${path} network error: ${why}`);
+    this.name = "TurnoNetworkError";
+  }
+}
+
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 export type QueryValue = string | number | boolean | null | undefined | Array<string | number>;
 
@@ -118,10 +135,39 @@ export class TurnoClient {
       body = JSON.stringify(opts.body);
     }
 
+    const timeoutMs = this.opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const maxAttempts = RETRY_DELAYS_MS.length + 1;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const started = Date.now();
-      const res = await this.fetchImpl(url, { method, headers, body });
+      let res: Response;
+      try {
+        res = await this.fetchImpl(url, {
+          method,
+          headers,
+          body,
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+      } catch (err) {
+        const timedOut =
+          err instanceof DOMException &&
+          (err.name === "TimeoutError" || err.name === "AbortError");
+        this.opts.logger?.info(
+          {
+            method,
+            path,
+            attempt,
+            timeoutMs,
+            err: err instanceof Error ? err.message : String(err),
+          },
+          "turno api network error",
+        );
+        if (attempt >= maxAttempts) {
+          recordOutboundError({ status: 0, path });
+          throw new TurnoNetworkError(method, path, err, timedOut);
+        }
+        await sleep(RETRY_DELAYS_MS[attempt - 1]);
+        continue;
+      }
       const elapsed = Date.now() - started;
 
       const text = await res.text();

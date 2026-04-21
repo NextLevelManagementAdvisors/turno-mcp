@@ -73,8 +73,14 @@ rotate `TURNO_ENCRYPTION_KEY` (invalidates everyone's bearer).
   callers). Non-retriable status codes throw on first attempt. Verified via
   a 4-case mock-fetch unit check: 3-attempts-succeed, throws-after-max,
   no-retry-on-4xx, retry-after-honored.
-- [ ] **Per-request timeout (default 30s).** [S]
-  `AbortController` so a hung Turno request can't pin a Node socket.
+- [x] **Per-request timeout (default 30s).** [S — done 2026-04-21]
+  Each fetch attempt in TurnoClient now uses `AbortSignal.timeout(timeoutMs)`
+  so a hung Turno socket can't pin a Node handler. Default 30000ms, override
+  via `TURNO_REQUEST_TIMEOUT_MS`. Timeouts (and other network errors) are
+  caught and fed through the same retry ladder as 429/5xx — after the final
+  attempt we throw a new `TurnoNetworkError` (with `timedOut: boolean`).
+  Verified via 3-case unit check (timeout-then-throw, timeout-then-recover,
+  default-accepts).
 - [ ] **Graceful shutdown.** [S]
   `process.on('SIGTERM')` → close the Express listener, wait up to 10s for
   in-flight `StreamableHTTPServerTransport` sessions, then exit.
