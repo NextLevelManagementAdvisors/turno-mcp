@@ -59,4 +59,4 @@ systemctl --no-pager --lines=5 status ${SERVICE_NAME} || true
 EOF
 
 rm -f "$TARBALL"
-echo "→ done. hit https://\$TURNO_PUBLIC_HOST/health to verify."
+echo "→ done. hit https://turno.nlma.io/health to verify."
