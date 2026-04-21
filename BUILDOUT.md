@@ -92,15 +92,18 @@ rotate `TURNO_ENCRYPTION_KEY` (invalidates everyone's bearer).
 
 ## Phase 5 — Tests + CI
 
-- [ ] **Vitest unit tests.** [M]
-  - `bearer.test.ts` — sign/verify round-trip, signature tamper rejection,
+- [x] **Vitest unit tests.** [M — done 2026-04-21]
+  16 tests in `tests/unit/` covering the full Phase 5 spec:
+  - `bearer.test.ts` (4) — sign/verify round-trip, tamper rejection,
     expiry rejection, malformed-payload rejection
-  - `crypto.test.ts` — `deriveKey` independence (different `info` strings give
-    distinct keys), GCM round-trip
-  - `turno-client.test.ts` — URL builder (array `?foo[]=` encoding), header
-    composition (Bearer + TBNB-Partner-ID both present), 4xx → `TurnoApiError`
-  - `tools/_shared.test.ts` — `shapeToJsonSchema` for the four primitive types
-    plus optional/array/enum, asserting `required[]` is correct
+  - `crypto.test.ts` (4) — `deriveKey` independence + determinism,
+    encrypt/decrypt round-trip, fresh-IV-per-encryption guarantee
+  - `turno-client.test.ts` (4) — literal `[]=` array encoding,
+    Bearer + TBNB-Partner-ID header composition, Partner-ID omitted
+    when unset, 4xx → `TurnoApiError`
+  - `tools-shared.test.ts` (4) — `shapeToJsonSchema` for primitives,
+    optional/default excluded from `required[]`, array item nesting,
+    `.describe()` → `description` field
 - [ ] **Integration smoke test** that boots the server on a random port, calls
       `/token` with mocked outbound fetch, walks `initialize` → `tools/list` →
       a `tools/call` with the mock returning canned JSON. [M]
