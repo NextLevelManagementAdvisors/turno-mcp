@@ -84,10 +84,15 @@ polish. Tick boxes as items land. Effort: **S** ≤30 min, **M** 1–3 h, **L** 
 
 ## Phase 6 — Polish
 
-- [ ] **README: concrete client wiring snippets.** [S]
-  - Claude Desktop `~/.claude_desktop_config.json` block with `mcp-remote` +
-    bearer header
-  - claude.ai custom-connector setup (URL + bearer)
+- [x] **Public landing page at `GET /` with client wiring snippets.** [S — done 2026-04-21]
+  Replaced the bare 404. 4-step setup walkthrough (where to find Secret Key in
+  Turno, where to find Partner ID, link to /enroll, then tabs for claude.ai,
+  Claude Desktop, Claude Code, Cursor, and mcp-remote/curl). Live at
+  [turno.nlma.io](https://turno.nlma.io/). Supersedes the original "README
+  client snippets" item — same content, more discoverable.
+- [ ] **README: client wiring snippets** (mirror of landing-page content). [S]
+  Lower priority now that the landing page covers it. Worth doing for GitHub
+  readers who never visit the live site.
 - [ ] **prettier + eslint** with the same config the other MCPs use. [S]
 - [ ] **OAuth authorization-code flow.** [L]
   Only worth doing if you ever need to onboard partners who can't paste a JWT

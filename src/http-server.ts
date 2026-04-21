@@ -9,7 +9,7 @@ import type { ToolContext } from "./tools/_shared.js";
 import { registerTools } from "./tools/register.js";
 import type { TenantStore } from "./tenants.js";
 import type { TenantRegistry } from "./tenant-registry.js";
-import { enrollError, enrollForm, enrollSuccess } from "./enroll-html.js";
+import { enrollError, enrollForm, enrollSuccess, landingPage } from "./enroll-html.js";
 import { config } from "./config.js";
 
 interface StartOpts {
@@ -38,6 +38,13 @@ export function buildApp(opts: StartOpts): express.Express {
   app.set("trust proxy", 1);
   app.use(express.json({ limit: "2mb" }));
   app.use(express.urlencoded({ extended: false }));
+
+  app.get("/", (_req, res) => {
+    res
+      .setHeader("Content-Type", "text/html; charset=utf-8")
+      .status(200)
+      .send(landingPage(opts.publicHost));
+  });
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", server: "turno-mcp", tenants: opts.store.list().length });

@@ -26,6 +26,150 @@ const baseCss = `
         border-radius: 6px; margin-bottom: 1rem; }
 `;
 
+export function landingPage(publicHost: string): string {
+  const mcpUrl = `https://${publicHost}/mcp`;
+  return `<!doctype html><html><head><meta charset="utf-8">
+<title>Turno MCP</title><style>${baseCss}
+  ol { padding-left: 1.2rem; }
+  ol > li { margin-top: 1.2rem; }
+  ol > li > strong { font-size: 1.05rem; }
+  .step-body { margin-top: 0.4rem; }
+  .pill { display: inline-block; padding: 0.5rem 1rem; background: #EF5B25;
+          color: white; text-decoration: none; border-radius: 6px;
+          font-weight: 600; }
+  .tabs { margin-top: 0.6rem; border-bottom: 1px solid #ddd; }
+  .tabs button { all: unset; cursor: pointer; padding: 0.4rem 0.8rem;
+          font-size: 0.9rem; color: #555; border-bottom: 2px solid transparent;
+          margin-right: 0.4rem; }
+  .tabs button.active { color: #EF5B25; border-bottom-color: #EF5B25; }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+</style></head><body>
+<h1>Turno MCP</h1>
+<p class="muted">A multi-tenant Model Context Protocol server for the
+<a href="https://apidocs.turnoverbnb.com/">Turno (TurnoverBnB) v2 API</a>.
+Lets any MCP-enabled assistant — Claude Desktop, claude.ai, Cursor, ChatGPT,
+etc. — call all 49 Turno API tools on your behalf.</p>
+
+<h2>Setup — 4 steps</h2>
+<ol>
+  <li>
+    <strong>Get your Secret Key from Turno</strong>
+    <div class="step-body">
+      In the Turno dashboard, go to <em>API → Tokens → "Create New Token"</em>.
+      The <strong>Secret Key</strong> is the long <code>eyJ…</code> JWT shown
+      <strong>once</strong> on creation. Copy it before leaving the page.
+    </div>
+  </li>
+  <li>
+    <strong>Get your Partner ID</strong>
+    <div class="step-body">
+      Same page — scroll to the bottom for the line
+      <em>"Here is your Partner ID:"</em> followed by a UUID. Copy that too.
+      Both are required on every API call.
+    </div>
+  </li>
+  <li>
+    <strong>Enroll</strong>
+    <div class="step-body">
+      <a class="pill" href="/enroll">Open the enrollment form &rarr;</a>
+      <p class="muted">You'll receive a one-time <code>trn_…</code> bearer
+      token. The Secret Key is encrypted at rest with AES-256-GCM; the
+      Partner ID is stored as plain UUID metadata.</p>
+    </div>
+  </li>
+  <li>
+    <strong>Wire the bearer into your MCP client</strong>
+    <div class="step-body">
+      Endpoint: <code>${escapeHtml(mcpUrl)}</code>
+      <div class="tabs">
+        <button class="active" data-tab="claudeai">claude.ai</button>
+        <button data-tab="desktop">Claude Desktop</button>
+        <button data-tab="claudecode">Claude Code</button>
+        <button data-tab="cursor">Cursor</button>
+        <button data-tab="curl">mcp-remote / curl</button>
+      </div>
+      <div class="tab-pane active" id="tab-claudeai">
+        <p class="muted">Settings &rarr; Connectors &rarr; Add custom connector.
+        Paste the URL with the bearer in the path:</p>
+        <pre>${escapeHtml(mcpUrl)}?token=trn_YOUR_BEARER_HERE</pre>
+        <p class="muted">(claude.ai's web UI doesn't expose custom headers, so
+        the bearer rides as a <code>?token=</code> query param. The server
+        accepts either form.)</p>
+      </div>
+      <div class="tab-pane" id="tab-desktop">
+        <p class="muted">In <code>~/.claude_desktop_config.json</code> (Mac) or
+        <code>%APPDATA%\\Claude\\claude_desktop_config.json</code> (Windows):</p>
+        <pre>{
+  "mcpServers": {
+    "turno": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "${escapeHtml(mcpUrl)}",
+        "--header",
+        "Authorization: Bearer trn_YOUR_BEARER_HERE"
+      ]
+    }
+  }
+}</pre>
+      </div>
+      <div class="tab-pane" id="tab-claudecode">
+        <p class="muted">In <code>~/.claude/settings.json</code> under
+        <code>mcpServers</code>:</p>
+        <pre>"turno": {
+  "type": "http",
+  "url": "${escapeHtml(mcpUrl)}",
+  "headers": {
+    "Authorization": "Bearer trn_YOUR_BEARER_HERE"
+  }
+}</pre>
+        <p class="muted">Restart Claude Code after saving.</p>
+      </div>
+      <div class="tab-pane" id="tab-cursor">
+        <p class="muted">In <code>.cursor/mcp.json</code> at your project root
+        (or <code>~/.cursor/mcp.json</code> globally):</p>
+        <pre>{
+  "mcpServers": {
+    "turno": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "${escapeHtml(mcpUrl)}",
+        "--header",
+        "Authorization: Bearer trn_YOUR_BEARER_HERE"
+      ]
+    }
+  }
+}</pre>
+      </div>
+      <div class="tab-pane" id="tab-curl">
+        <p class="muted">For testing or non-MCP-aware tooling:</p>
+        <pre>npx mcp-remote ${escapeHtml(mcpUrl)} \\
+  --header "Authorization: Bearer trn_YOUR_BEARER_HERE"</pre>
+      </div>
+    </div>
+  </li>
+</ol>
+
+<h2>Status</h2>
+<p class="muted">
+  Endpoint: <a href="${escapeHtml(mcpUrl)}"><code>${escapeHtml(mcpUrl)}</code></a> ·
+  Health: <a href="/health"><code>/health</code></a>
+</p>
+
+<script>
+  document.querySelectorAll('.tabs button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = btn.getAttribute('data-tab');
+      document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + target));
+    });
+  });
+</script>
+</body></html>`;
+}
+
 export function enrollForm(err?: string): string {
   return `<!doctype html><html><head><meta charset="utf-8">
 <title>Turno MCP — enroll</title><style>${baseCss}</style></head><body>
