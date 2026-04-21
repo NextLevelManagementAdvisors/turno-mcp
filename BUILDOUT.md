@@ -67,9 +67,12 @@ rotate `TURNO_ENCRYPTION_KEY` (invalidates everyone's bearer).
 
 ## Phase 4 — Outbound reliability
 
-- [ ] **Retry-with-backoff in [src/turno-client.ts](src/turno-client.ts).** [M]
-  Retry on 429 + 5xx, max 3 attempts, exponential 200ms→1s→3s. Honor
-  `Retry-After` header when present.
+- [x] **Retry-with-backoff in [src/turno-client.ts](src/turno-client.ts).** [M — done 2026-04-21]
+  Retry on 429 or 5xx, max 3 attempts (2 retries), delay ladder 200ms→1s.
+  Honors `Retry-After` when the server sends it (capped at 30s to protect
+  callers). Non-retriable status codes throw on first attempt. Verified via
+  a 4-case mock-fetch unit check: 3-attempts-succeed, throws-after-max,
+  no-retry-on-4xx, retry-after-honored.
 - [ ] **Per-request timeout (default 30s).** [S]
   `AbortController` so a hung Turno request can't pin a Node socket.
 - [ ] **Graceful shutdown.** [S]

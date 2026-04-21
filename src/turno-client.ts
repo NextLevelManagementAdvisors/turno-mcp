@@ -42,6 +42,32 @@ export interface RequestOptions {
 }
 
 /**
+ * Retry ladder (ms between attempts). Length = number of retries, so total
+ * attempts = RETRY_DELAYS_MS.length + 1. Transient Turno failures (429,
+ * 5xx) get retried on this schedule; Retry-After header overrides the
+ * default if the server specifies a larger wait.
+ */
+const RETRY_DELAYS_MS = [200, 1000];
+const MAX_RETRY_AFTER_MS = 30_000;
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+function parseRetryAfter(value: string | null): number | null {
+  if (!value) return null;
+  const asNumber = Number(value);
+  if (Number.isFinite(asNumber) && asNumber >= 0) return Math.floor(asNumber * 1000);
+  const asDate = Date.parse(value);
+  if (Number.isFinite(asDate)) {
+    return Math.max(0, asDate - Date.now());
+  }
+  return null;
+}
+
+function isRetriableStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status < 600);
+}
+
+/**
  * Thin REST client around the Turno External API v2.
  * Every request carries the tenant's Bearer + TBNB-Partner-ID header.
  */
@@ -92,32 +118,57 @@ export class TurnoClient {
       body = JSON.stringify(opts.body);
     }
 
-    const started = Date.now();
-    const res = await this.fetchImpl(url, { method, headers, body });
-    const elapsed = Date.now() - started;
+    const maxAttempts = RETRY_DELAYS_MS.length + 1;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const started = Date.now();
+      const res = await this.fetchImpl(url, { method, headers, body });
+      const elapsed = Date.now() - started;
 
-    const text = await res.text();
-    let parsed: unknown = text;
-    if (text.length > 0) {
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        // leave as text
+      const text = await res.text();
+      let parsed: unknown = text;
+      if (text.length > 0) {
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          // leave as text
+        }
+      } else {
+        parsed = null;
       }
-    } else {
-      parsed = null;
+
+      this.opts.logger?.debug(
+        { method, path, status: res.status, attempt, ms: elapsed },
+        "turno api call",
+      );
+
+      if (res.ok) {
+        return parsed as T;
+      }
+
+      const canRetry = attempt < maxAttempts && isRetriableStatus(res.status);
+      if (!canRetry) {
+        recordOutboundError({ status: res.status, path });
+        throw new TurnoApiError(res.status, parsed, method, path);
+      }
+
+      // Prefer the server's Retry-After hint when present, capped to protect
+      // the caller from pathological values. Fall back to the ladder otherwise.
+      const retryAfter = parseRetryAfter(res.headers.get("retry-after"));
+      const delayMs =
+        retryAfter !== null
+          ? Math.min(retryAfter, MAX_RETRY_AFTER_MS)
+          : RETRY_DELAYS_MS[attempt - 1];
+
+      this.opts.logger?.info(
+        { method, path, status: res.status, attempt, nextDelayMs: delayMs },
+        "turno api retry",
+      );
+      await sleep(delayMs);
     }
 
-    this.opts.logger?.debug(
-      { method, path, status: res.status, ms: elapsed },
-      "turno api call",
-    );
-
-    if (!res.ok) {
-      recordOutboundError({ status: res.status, path });
-      throw new TurnoApiError(res.status, parsed, method, path);
-    }
-    return parsed as T;
+    // Loop invariant: we always either return on success or throw on final
+    // non-retriable failure. This is for TypeScript's benefit only.
+    throw new Error("turno-client: unreachable retry-loop exit");
   }
 
   private buildUrl(path: string, query?: Record<string, QueryValue>): string {
