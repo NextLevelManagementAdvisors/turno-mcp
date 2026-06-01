@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+node_modules
+dist
+.legacy-tenant-store
+data
+deploy
+*.log
+Dockerfile
+docker-compose.yml
+.dockerignore

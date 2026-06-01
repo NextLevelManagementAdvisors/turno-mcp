@@ -1,0 +1,13 @@
+services:
+  turno-mcp:
+    build: .
+    image: turno-mcp:local
+    container_name: turno-mcp
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - HOST=0.0.0.0
+    ports:
+      - 127.0.0.1:3009:3009
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
