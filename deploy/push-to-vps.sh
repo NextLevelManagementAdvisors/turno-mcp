@@ -3,11 +3,11 @@
 # Mirrors the pattern used by baselane-mcp and hospitable-mcp.
 #
 # Usage:  ./deploy/push-to-vps.sh [host]
-# Default host: root@178.16.141.166
+# Default host: root@YOUR_SERVER_IP
 
 set -euo pipefail
 
-HOST="${1:-root@178.16.141.166}"
+HOST="${1:-root@YOUR_SERVER_IP}"
 REMOTE_DIR="/opt/turno-mcp"
 SERVICE_NAME="turno-mcp"
 PUBLIC_HOST="${TURNO_PUBLIC_HOST:-turno.nlma.io}"
