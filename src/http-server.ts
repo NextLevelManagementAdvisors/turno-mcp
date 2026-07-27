@@ -296,10 +296,20 @@ export function buildApp(opts: StartOpts): express.Express {
   });
 
   app.get("/health", (_req, res) => {
+    // The HKDF root key is the only persistent secret in this stateless
+    // deploy — every bearer's HMAC signature and embedded credential
+    // encryption derive from it. index.ts refuses to boot in http mode
+    // without one, but that only guards process start: a process that
+    // *is* running should still say so explicitly, so "structurally can't
+    // authenticate anyone" never looks like a plain 200.
+    const encryptionKeyConfigured = config.TURNO_ENCRYPTION_KEY.length >= 32;
     const body: Record<string, unknown> = {
-      status: "ok",
+      status: encryptionKeyConfigured ? "ok" : "degraded",
       server: SERVER_NAME,
       version: SERVER_VERSION,
+      transport: "http",
+      enrollEnabled: opts.enrollEnabled,
+      encryptionKeyConfigured,
     };
     const cert = getCertInfo(config.TURNO_CERT_PATH, opts.logger);
     if (cert) body.cert_expires_at = cert.expiresAt;

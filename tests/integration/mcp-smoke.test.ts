@@ -196,6 +196,21 @@ describe("MCP integration smoke", () => {
     });
     expect(res.status).toBe(401);
   });
+
+  it("/health reports ok and surfaces auth-readiness config", async () => {
+    const res = await originalFetch(`${baseUrl}/health`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      transport: string;
+      enrollEnabled: boolean;
+      encryptionKeyConfigured: boolean;
+    };
+    expect(body.status).toBe("ok");
+    expect(body.transport).toBe("http");
+    expect(body.enrollEnabled).toBe(true);
+    expect(body.encryptionKeyConfigured).toBe(true);
+  });
 });
 
 // TS hint for the unused local type; silences "unused" when editor doesn't read JSX.
