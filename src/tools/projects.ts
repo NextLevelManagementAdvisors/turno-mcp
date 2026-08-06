@@ -7,7 +7,8 @@ export const projectTools: AnyToolDef[] = [
   tool({
     name: "turno_list_projects",
     description:
-      "List cleaning/turnover projects with flexible filters. GET /v2/projects.",
+      "List cleaning/turnover projects with flexible filters. GET /v2/projects. " +
+      "Use `start`/`end` to bound the date range — there is no separate date_range_start/date_range_end filter upstream.",
     inputShape: {
       time_type: z.enum(["DAY", "WEEK", "MONTH", "YEAR"]).optional(),
       time_value: z.number().int().optional(),
@@ -16,10 +17,8 @@ export const projectTools: AnyToolDef[] = [
       cleaners: z.string().optional().describe("Comma-separated contractor IDs"),
       customers: z.string().optional().describe("Comma-separated customer IDs"),
       project_ids: z.string().optional().describe("Comma-separated project IDs"),
-      start: z.string().optional().describe("Y-m-d"),
-      end: z.string().optional().describe("Y-m-d"),
-      date_range_start: z.string().optional().describe("Y-m-d"),
-      date_range_end: z.string().optional().describe("Y-m-d"),
+      start: z.string().optional().describe("Y-m-d. Filters to projects on or after this date."),
+      end: z.string().optional().describe("Y-m-d. Filters to projects on or before this date."),
       none: z.boolean().optional(),
       limit: z.number().int().optional(),
       page: z.number().int().optional(),
