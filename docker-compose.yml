@@ -7,7 +7,28 @@ services:
     env_file: .env
     environment:
       - HOST=0.0.0.0
+      # Route outbound Turno calls through the fingerprinted egress. Node's
+      # own fetch gets a Cloudflare 403 challenge on every request; see
+      # egress/server.py for the full story.
+      - TURNO_EGRESS_URL=http://turno-egress:8000
+      - TURNO_EGRESS_FOR_HOST=api.turnoverbnb.com
+    depends_on:
+      - turno-egress
     ports:
       - 127.0.0.1:3009:3009
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./data:/opt/turno-mcp/data
+
+  # Browser-fingerprinted passthrough to api.turnoverbnb.com. Reachable only
+  # on the compose network — deliberately no published port, and its upstream
+  # is pinned so it cannot be used as a general forward proxy.
+  turno-egress:
+    build: ./egress
+    image: turno-egress:local
+    container_name: turno-egress
+    restart: unless-stopped
+    environment:
+      - EGRESS_UPSTREAM=https://api.turnoverbnb.com
+      - EGRESS_IMPERSONATE=chrome131
+      - EGRESS_PORT=8000

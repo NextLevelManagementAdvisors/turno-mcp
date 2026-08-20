@@ -13,15 +13,24 @@ npm start            # node dist/src/index.js (stdio)
 npm run start:http   # node dist/src/index.js (http)
 ```
 
-There is no test suite yet — `npm test` runs vitest but no tests are defined. Validation today is typecheck + an end-to-end smoke (boot http mode, `POST /token`, `POST /mcp` with `initialize` then `tools/list`).
+`npm test` runs vitest: unit tests under `tests/unit/` plus an end-to-end smoke in
+`tests/integration/` (boots http mode, `POST /token`, `POST /mcp` with `initialize` then
+`tools/list`).
 
 Deploy to the production VPS:
 
 ```bash
-./deploy/push-to-vps.sh   # tar+scp to root@178.16.141.166:/opt/turno-mcp, npm ci, systemctl restart
+# /opt/turno-mcp is NOT a git checkout and is NOT in /opt/nlma-redeploy/services.list,
+# so it does not auto-deploy. Ship the tree, then rebuild both containers.
+tar czf /tmp/turno-deploy.tgz src egress docker-compose.yml package.json tsconfig.json tests
+scp /tmp/turno-deploy.tgz root@178.16.141.166:/tmp/
+ssh root@178.16.141.166 'cd /opt/turno-mcp && tar xzf /tmp/turno-deploy.tgz \
+  && docker compose build && docker compose up -d'
 ```
 
-The service is live at `https://turno.nlma.io/mcp` on port 3009 behind nginx + Let's Encrypt. systemd unit name: `turno-mcp.service`. Config (`.env`, chmod 600) lives at `/opt/turno-mcp/.env`. **There is no tenant store on disk** — the MCP is fully stateless (see Architecture).
+The service is live at `https://turno.nlma.io/mcp` on port 3009 behind nginx + Let's Encrypt.
+Config (`.env`, chmod 600) lives at `/opt/turno-mcp/.env`, and compose reads it via `env_file`.
+**There is no tenant store on disk** — the MCP is fully stateless (see Architecture).
 
 ## Architecture
 
@@ -98,6 +107,27 @@ Tool count: 49 — covers all 51 distinct Turno v2 REST endpoints minus `GET /v2
 - **Don't trust the Postman docs blindly.** They show `TBNB-Partner-ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` on every request as if it's a placeholder, but that's the actual literal UUID format and the header is genuinely required. The base URL examples (`sandbox.turnoverbnb.com`, `www.turnoverbnb.com`) are also misleading — see Architecture above.
 - **JWT transcription errors are the #1 cause of `401 "Unauthenticated"`.** When debugging a Turno Secret Key, copy-paste from the Turno UI directly. Capital `I` vs lowercase `l` and `O` vs `0` mistakes from screenshots will look correct visually but break signature validation.
 - **Port 3009** on the VPS — pick a fresh port if standing up another service. `ss -tlnp` on the VPS first; ports 3000–3008 are taken.
-- **No Docker.** This service runs as a plain systemd-managed Node process, matching the convention of every other `*.nlma.io` MCP server. Don't add Dockerfile/compose deploy paths.
+- **Docker, two containers.** This service was containerized in cbe39cc; the earlier "plain
+  systemd Node process, no Docker" note in this file was stale and cost real time on 2026-08-19.
+  `docker compose` runs `turno-mcp` (published on `127.0.0.1:3009`) plus `turno-egress`
+  (compose-network only, no published port). There is no `turno-mcp.service` systemd unit.
+- **Turno's API is behind Cloudflare bot management that classifies on the TLS/HTTP2
+  fingerprint.** Measured 2026-08-19: Node's built-in `fetch` and stock `curl` get
+  `403 + cf-mitigated: challenge + "Just a moment..."` on *every* request to
+  `api.turnoverbnb.com`, credentials or not — including unauthenticated ones. curl_cffi
+  impersonating Chrome, same host, same second, same request, gets a clean
+  `401 {"error":"Unauthenticated."}`. It is **not** IP reputation: WARP egress
+  (`socks5://127.0.0.1:40000`) is challenged too, and forcing IPv4 vs IPv6 makes no
+  difference. That is what [egress/server.py](egress/server.py) exists for, wired up by
+  `TURNO_EGRESS_URL` (see [src/config.ts](src/config.ts)).
+  - The rewrite happens per request in `TurnoClient`, **not** by changing `TURNO_BASE_URL`,
+    because every issued bearer carries its own base URL in its JWT `b` claim — an env swap
+    would silently fix only newly issued bearers.
+  - If `EGRESS_IMPERSONATE=chrome131` ever starts getting challenged again, bump it (Cloudflare
+    flags stale fingerprints). `turno-egress` logs `challenge SURVIVED impersonate=...` at warn
+    when that happens.
+- **A 403 is never a credential problem.** `TurnoCloudflareError` exists to keep the enrollment
+  form from telling operators to rotate a perfectly good Secret Key. Genuine auth failures are
+  `401` with a JSON body.
 - **Bearer rotation = re-call /token.** Same credentials yield a fresh JWT on each call (idempotent only at the credential layer, not the bearer string). The previous bearer keeps working until its `exp`.
 - **Legacy state**: `/opt/turno-mcp/.legacy-tenant-store/` holds the old `tenants.json` + snapshots from before the stateless refactor. Delete after a stability window if no rollback was needed.

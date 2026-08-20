@@ -1,5 +1,6 @@
 import type { Logger } from "./logger.js";
 import { recordOutboundError } from "./health-state.js";
+import { config } from "./config.js";
 
 export class TurnoApiError extends Error {
   constructor(
@@ -7,6 +8,11 @@ export class TurnoApiError extends Error {
     public readonly body: unknown,
     public readonly method: string,
     public readonly path: string,
+    /**
+     * Lower-cased response headers, kept for diagnosis on the error path
+     * (Cloudflare's `cf-mitigated` / `cf-ray` in particular).
+     */
+    public readonly headers: Record<string, string> = {},
   ) {
     super(`Turno API ${status} on ${method} ${path}: ${stringifyBody(body)}`);
     this.name = "TurnoApiError";
@@ -25,6 +31,12 @@ function stringifyBody(b: unknown): string {
 export interface TurnoClientOptions {
   baseUrl: string;
   bearerToken: string;
+  /**
+   * Override the browser-fingerprinted egress for this client. Omit to use
+   * the process-wide config (TURNO_EGRESS_URL / TURNO_EGRESS_FOR_HOST);
+   * pass `{url: ""}` to force a direct connection. Exists for tests.
+   */
+  egress?: { url: string; forHost?: string };
   /** Optional — only sent as TBNB-Partner-ID header if non-empty. */
   partnerId?: string;
   /** Per-attempt outbound timeout in ms. Defaults to 30s. */
@@ -48,11 +60,17 @@ export class TurnoNetworkError extends Error {
 }
 
 /**
- * A 403 whose body is a Cloudflare managed-challenge page — an egress-IP
- * reputation block, NOT a credential rejection. Kept distinct from
- * TurnoApiError so callers don't tell operators to rotate valid keys, and so
- * the multi-KB challenge HTML never reaches the caller: only the cf_ray is
- * retained for support correlation.
+ * A 403 that is a Cloudflare managed-challenge page rather than a credential
+ * rejection. Kept distinct from TurnoApiError so callers don't tell operators
+ * to rotate valid keys, and so the multi-KB challenge HTML never reaches the
+ * caller: only the cf_ray is retained for support correlation.
+ *
+ * The trigger is the client's TLS/HTTP2 fingerprint, NOT the egress IP. This
+ * was measured on 2026-08-19: from one VPS, Node's fetch and stock curl both
+ * got the challenge while curl_cffi impersonating Chrome got a clean
+ * `401 {"error":"Unauthenticated."}` on the same request from the same
+ * address. WARP egress made no difference. So the fix is a browser
+ * fingerprint (see egress/server.py), not a new IP.
  */
 export class TurnoCloudflareError extends Error {
   constructor(
@@ -63,8 +81,9 @@ export class TurnoCloudflareError extends Error {
     super(
       `Turno ${method} ${path} blocked by Cloudflare (managed challenge), NOT an auth failure. ` +
         `Credentials were not rejected — do not rotate the Secret Key or Partner ID. ` +
-        `cf_ray=${cfRay ?? "unknown"}. The server's egress IP is being challenged; ` +
-        `route egress through the WARP proxy or use an authenticated browser session.`,
+        `cf_ray=${cfRay ?? "unknown"}. Cloudflare is challenging this client's TLS ` +
+        `fingerprint, so a different IP will not help: route outbound calls through the ` +
+        `browser-fingerprinted egress sidecar by setting TURNO_EGRESS_URL.`,
     );
     this.name = "TurnoCloudflareError";
   }
@@ -72,12 +91,13 @@ export class TurnoCloudflareError extends Error {
 
 /**
  * A genuine Turno auth failure returns JSON (`{"error":"Unauthenticated."}`);
- * a Cloudflare block returns an HTML interstitial carrying these markers. They
- * are trivially distinguishable, so we sniff the raw body before blaming
- * credentials on a 403.
+ * a Cloudflare block returns an HTML interstitial carrying these markers, and
+ * sets `cf-mitigated: challenge` on the response. Either signal is conclusive,
+ * so both are checked — the header survives a body Cloudflare later reformats.
  */
-function isCloudflareChallenge(body: string): boolean {
+function isCloudflareChallenge(body: string, headers: Record<string, string> = {}): boolean {
   return (
+    headers["cf-mitigated"] === "challenge" ||
     body.includes("_cf_chl_opt") ||
     body.includes("challenges.cloudflare.com") ||
     /<title>\s*Just a moment/i.test(body)
@@ -126,14 +146,99 @@ function isRetriableStatus(status: number): boolean {
 }
 
 /**
+ * Flatten response headers to a lower-cased record.
+ *
+ * Real fetch always hands back a Headers instance, but test doubles and fetch
+ * shims often pass a plain object. Header extraction is on the error path, so
+ * it must never be the thing that throws.
+ */
+/**
+ * Headers this client reasons about. Used only to probe a headers object that
+ * cannot be enumerated (see below).
+ */
+const PROBE_HEADERS = ["cf-mitigated", "cf-ray", "content-type", "retry-after"] as const;
+
+function lowerCaseHeaders(headers: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!headers) return out;
+  if (typeof (headers as Headers).forEach === "function") {
+    (headers as Headers).forEach((value, key) => {
+      out[key.toLowerCase()] = value;
+    });
+    return out;
+  }
+  // A `get`-only shim (fetch mocks, some proxy/runtime shims) exposes no
+  // enumerable entries, so iterating it yields nothing and every header read
+  // downstream silently comes back undefined. Ask it directly instead.
+  if (typeof (headers as Headers).get === "function") {
+    for (const name of PROBE_HEADERS) {
+      const value = (headers as Headers).get(name);
+      if (typeof value === "string") out[name] = value;
+    }
+    return out;
+  }
+  if (typeof headers === "object") {
+    for (const [key, value] of Object.entries(headers as Record<string, unknown>)) {
+      if (typeof value === "string") out[key.toLowerCase()] = value;
+    }
+  }
+  return out;
+}
+
+/**
+ * Rewrite a Turno base URL onto the fingerprinted egress sidecar, preserving
+ * the path prefix (so `https://api.turnoverbnb.com/v2` becomes
+ * `http://turno-egress:8000/v2`).
+ *
+ * Returns baseUrl unchanged when no egress is configured, when the host does
+ * not match, or when either URL fails to parse — a bad env var must not take
+ * the whole client down.
+ */
+export function applyEgress(
+  baseUrl: string,
+  egress: { url: string; forHost?: string },
+): string {
+  if (!egress.url) return baseUrl;
+  const forHost = egress.forHost ?? "api.turnoverbnb.com";
+  try {
+    const target = new URL(baseUrl);
+    if (target.hostname.toLowerCase() !== forHost.toLowerCase()) return baseUrl;
+    const via = new URL(egress.url);
+    const prefix = via.pathname.replace(/\/+$/, "");
+    return `${via.origin}${prefix}${target.pathname.replace(/\/+$/, "")}`;
+  } catch {
+    return baseUrl;
+  }
+}
+
+/**
  * Thin REST client around the Turno External API v2.
  * Every request carries the tenant's Bearer + TBNB-Partner-ID header.
  */
 export class TurnoClient {
   private readonly fetchImpl: typeof fetch;
+  /**
+   * Where requests actually go. Differs from the logical `baseUrl` when the
+   * fingerprinted egress is in play; kept separate so cache keys, logs and
+   * user-facing copy still name the real Turno host.
+   */
+  private readonly requestBase: string;
 
   constructor(private readonly opts: TurnoClientOptions) {
     this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.requestBase = applyEgress(
+      opts.baseUrl,
+      opts.egress ?? {
+        url: config.TURNO_EGRESS_URL,
+        forHost: config.TURNO_EGRESS_FOR_HOST,
+      },
+    );
+    if (this.requestBase !== opts.baseUrl) {
+      opts.logger?.debug(
+        { baseUrl: opts.baseUrl, via: this.requestBase },
+        "turno requests routed via fingerprinted egress",
+      );
+    }
   }
 
   get baseUrl(): string {
@@ -232,15 +337,22 @@ export class TurnoClient {
         return parsed as T;
       }
 
-      // A Cloudflare managed-challenge on a 403 is an IP-reputation block, not
-      // an auth failure. Surface it distinctly and drop the challenge page —
+      const resHeaders = lowerCaseHeaders(res.headers);
+
+      // A Cloudflare managed-challenge on a 403 is a fingerprint block, not an
+      // auth failure. Surface it distinctly and drop the challenge page —
       // logging only the cf_ray — so operators don't rotate valid credentials
       // and the multi-KB HTML doesn't burn caller context.
-      if (res.status === 403 && isCloudflareChallenge(text)) {
+      if (res.status === 403 && isCloudflareChallenge(text, resHeaders)) {
         // The response header is authoritative and what Cloudflare support
         // asks for; the body scrape is a fallback for proxies that strip it.
-        const cfRay = res.headers.get("cf-ray") ?? extractCfRay(text);
-        this.opts.logger?.info(
+        // Read it off resHeaders rather than res.headers.get so a plain-object
+        // fetch stub can't throw inside the error path.
+        const cfRay = resHeaders["cf-ray"] ?? extractCfRay(text) ?? null;
+        // Warn, not info: this fails the caller outright and is the one line
+        // an operator needs. Logging it at info hid the whole 2026-08-19
+        // outage on a server running at LOG_LEVEL=info.
+        this.opts.logger?.warn(
           { method, path, status: 403, cfRay },
           "turno api blocked by cloudflare challenge",
         );
@@ -251,7 +363,15 @@ export class TurnoClient {
       const canRetry = attempt < maxAttempts && isRetriableStatus(res.status);
       if (!canRetry) {
         recordOutboundError({ status: res.status, path });
-        throw new TurnoApiError(res.status, parsed, method, path);
+        const err = new TurnoApiError(res.status, parsed, method, path, resHeaders);
+        // A giving-up outbound failure used to be logged only at debug, so a
+        // failing call produced zero log lines and the operator had nothing to
+        // go on. Warn is the floor for anything that fails a caller.
+        this.opts.logger?.warn(
+          { method, path, status: res.status, attempt, ms: elapsed },
+          "turno api call failed",
+        );
+        throw err;
       }
 
       // Prefer the server's Retry-After hint when present, capped to protect
@@ -276,8 +396,8 @@ export class TurnoClient {
 
   private buildUrl(path: string, query?: Record<string, QueryValue>): string {
     const joined = path.startsWith("/")
-      ? this.opts.baseUrl + path
-      : `${this.opts.baseUrl}/${path}`;
+      ? this.requestBase + path
+      : `${this.requestBase}/${path}`;
     if (!query) return joined;
 
     const qs: string[] = [];
