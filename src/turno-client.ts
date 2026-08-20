@@ -152,6 +152,12 @@ function isRetriableStatus(status: number): boolean {
  * shims often pass a plain object. Header extraction is on the error path, so
  * it must never be the thing that throws.
  */
+/**
+ * Headers this client reasons about. Used only to probe a headers object that
+ * cannot be enumerated (see below).
+ */
+const PROBE_HEADERS = ["cf-mitigated", "cf-ray", "content-type", "retry-after"] as const;
+
 function lowerCaseHeaders(headers: unknown): Record<string, string> {
   const out: Record<string, string> = {};
   if (!headers) return out;
@@ -159,6 +165,16 @@ function lowerCaseHeaders(headers: unknown): Record<string, string> {
     (headers as Headers).forEach((value, key) => {
       out[key.toLowerCase()] = value;
     });
+    return out;
+  }
+  // A `get`-only shim (fetch mocks, some proxy/runtime shims) exposes no
+  // enumerable entries, so iterating it yields nothing and every header read
+  // downstream silently comes back undefined. Ask it directly instead.
+  if (typeof (headers as Headers).get === "function") {
+    for (const name of PROBE_HEADERS) {
+      const value = (headers as Headers).get(name);
+      if (typeof value === "string") out[name] = value;
+    }
     return out;
   }
   if (typeof headers === "object") {
@@ -328,7 +344,11 @@ export class TurnoClient {
       // logging only the cf_ray — so operators don't rotate valid credentials
       // and the multi-KB HTML doesn't burn caller context.
       if (res.status === 403 && isCloudflareChallenge(text, resHeaders)) {
-        const cfRay = extractCfRay(text) ?? resHeaders["cf-ray"] ?? null;
+        // The response header is authoritative and what Cloudflare support
+        // asks for; the body scrape is a fallback for proxies that strip it.
+        // Read it off resHeaders rather than res.headers.get so a plain-object
+        // fetch stub can't throw inside the error path.
+        const cfRay = resHeaders["cf-ray"] ?? extractCfRay(text) ?? null;
         // Warn, not info: this fails the caller outright and is the one line
         // an operator needs. Logging it at info hid the whole 2026-08-19
         // outage on a server running at LOG_LEVEL=info.
