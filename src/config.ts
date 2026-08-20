@@ -21,6 +21,22 @@ export const config = {
   // Turno API
   TURNO_BASE_URL: (process.env.TURNO_BASE_URL ?? "https://api.turnoverbnb.com/v2").replace(/\/+$/, ""),
 
+  // Browser-fingerprinted egress (see egress/server.py).
+  //
+  // Cloudflare Bot Management on api.turnoverbnb.com classifies on the
+  // TLS/HTTP2 fingerprint: Node's fetch gets a 403 challenge on every
+  // request, credentials or not. When TURNO_EGRESS_URL is set, outbound
+  // calls whose host is TURNO_EGRESS_FOR_HOST are re-pointed at the sidecar,
+  // which replays them with a Chrome fingerprint.
+  //
+  // The rewrite happens at request time rather than by changing
+  // TURNO_BASE_URL because each bearer carries its own base URL baked into
+  // the JWT — an env swap would only fix newly issued bearers.
+  //
+  // Empty (the default) disables the rewrite entirely: direct-to-Turno.
+  TURNO_EGRESS_URL: (process.env.TURNO_EGRESS_URL ?? "").replace(/\/+$/, ""),
+  TURNO_EGRESS_FOR_HOST: process.env.TURNO_EGRESS_FOR_HOST ?? "api.turnoverbnb.com",
+
   // TLS cert path for /health surface — derived from PUBLIC_HOST so it tracks
   // the Let's Encrypt convention. Override via env if the cert lives elsewhere.
   TURNO_CERT_PATH:

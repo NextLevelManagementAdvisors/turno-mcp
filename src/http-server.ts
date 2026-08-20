@@ -9,7 +9,7 @@ import { BearerError, signAuthCode, signBearer, verifyBearer } from "./bearer.js
 import type { Logger } from "./logger.js";
 import type { ToolContext } from "./tools/_shared.js";
 import { registerTools } from "./tools/register.js";
-import { TurnoClient, TurnoApiError } from "./turno-client.js";
+import { TurnoClient, TurnoApiError, TurnoCloudflareError } from "./turno-client.js";
 import { enrollError, enrollForm, enrollSuccess, landingPage, oauthConsentForm } from "./enroll-html.js";
 import { config } from "./config.js";
 import { getCertInfo } from "./cert-info.js";
@@ -75,6 +75,27 @@ async function validateTurnoCredentials(
     const info = await client.get("/userinfo");
     return { ok: true, info };
   } catch (err) {
+    // A Cloudflare challenge is a server-side reachability problem, not a
+    // credential problem. Reporting it as "double-check your Secret Key" cost
+    // a long debugging session on 2026-08-19 — the key was fine and this
+    // server simply could not get past bot management. Checked before
+    // TurnoApiError so the enrollment form never blames the operator's keys.
+    if (err instanceof TurnoCloudflareError) {
+      opts.logger.warn(
+        { baseUrl: opts.baseUrl, cfRay: err.cfRay },
+        "credential validation blocked by cloudflare challenge",
+      );
+      return {
+        ok: false,
+        status: 403,
+        reason:
+          "Turno's API is blocking this server with a Cloudflare bot-management " +
+          "challenge, so your credentials could not be checked. This is NOT a problem " +
+          "with your Secret Key or Partner ID — do not rotate them. The server needs " +
+          "its browser-fingerprinted egress (TURNO_EGRESS_URL) configured and reachable. " +
+          `cf_ray=${err.cfRay ?? "unknown"}`,
+      };
+    }
     if (err instanceof TurnoApiError) {
       return {
         ok: false,
