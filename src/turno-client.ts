@@ -47,6 +47,47 @@ export class TurnoNetworkError extends Error {
   }
 }
 
+/**
+ * A 403 whose body is a Cloudflare managed-challenge page — an egress-IP
+ * reputation block, NOT a credential rejection. Kept distinct from
+ * TurnoApiError so callers don't tell operators to rotate valid keys, and so
+ * the multi-KB challenge HTML never reaches the caller: only the cf_ray is
+ * retained for support correlation.
+ */
+export class TurnoCloudflareError extends Error {
+  constructor(
+    public readonly method: string,
+    public readonly path: string,
+    public readonly cfRay: string | null,
+  ) {
+    super(
+      `Turno ${method} ${path} blocked by Cloudflare (managed challenge), NOT an auth failure. ` +
+        `Credentials were not rejected — do not rotate the Secret Key or Partner ID. ` +
+        `cf_ray=${cfRay ?? "unknown"}. The server's egress IP is being challenged; ` +
+        `route egress through the WARP proxy or use an authenticated browser session.`,
+    );
+    this.name = "TurnoCloudflareError";
+  }
+}
+
+/**
+ * A genuine Turno auth failure returns JSON (`{"error":"Unauthenticated."}`);
+ * a Cloudflare block returns an HTML interstitial carrying these markers. They
+ * are trivially distinguishable, so we sniff the raw body before blaming
+ * credentials on a 403.
+ */
+function isCloudflareChallenge(body: string): boolean {
+  return (
+    body.includes("_cf_chl_opt") ||
+    body.includes("challenges.cloudflare.com") ||
+    /<title>\s*Just a moment/i.test(body)
+  );
+}
+
+function extractCfRay(body: string): string | null {
+  return body.match(/cRay:\s*'([^']+)'/)?.[1] ?? null;
+}
+
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 export type QueryValue = string | number | boolean | null | undefined | Array<string | number>;
@@ -189,6 +230,20 @@ export class TurnoClient {
 
       if (res.ok) {
         return parsed as T;
+      }
+
+      // A Cloudflare managed-challenge on a 403 is an IP-reputation block, not
+      // an auth failure. Surface it distinctly and drop the challenge page —
+      // logging only the cf_ray — so operators don't rotate valid credentials
+      // and the multi-KB HTML doesn't burn caller context.
+      if (res.status === 403 && isCloudflareChallenge(text)) {
+        const cfRay = extractCfRay(text);
+        this.opts.logger?.info(
+          { method, path, status: 403, cfRay },
+          "turno api blocked by cloudflare challenge",
+        );
+        recordOutboundError({ status: res.status, path });
+        throw new TurnoCloudflareError(method, path, cfRay);
       }
 
       const canRetry = attempt < maxAttempts && isRetriableStatus(res.status);
