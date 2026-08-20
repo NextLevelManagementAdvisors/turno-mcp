@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Logger } from "../logger.js";
 import type { TurnoClient } from "../turno-client.js";
-import { TurnoApiError } from "../turno-client.js";
+import { TurnoApiError, TurnoCloudflareError } from "../turno-client.js";
 
 export interface ToolContext {
   client: TurnoClient;
@@ -25,6 +25,11 @@ export function textContent(text: string): ToolResult {
 }
 
 export function formatToolError(err: unknown): ToolResult {
+  // Cloudflare blocks carry a complete, actionable message and deliberately
+  // omit the challenge page — surface it as-is rather than as a raw API error.
+  if (err instanceof TurnoCloudflareError) {
+    return { content: [{ type: "text", text: err.message }], isError: true };
+  }
   if (err instanceof TurnoApiError) {
     return {
       content: [
