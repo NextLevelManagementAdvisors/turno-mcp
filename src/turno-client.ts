@@ -237,7 +237,9 @@ export class TurnoClient {
       // logging only the cf_ray — so operators don't rotate valid credentials
       // and the multi-KB HTML doesn't burn caller context.
       if (res.status === 403 && isCloudflareChallenge(text)) {
-        const cfRay = extractCfRay(text);
+        // The response header is authoritative and what Cloudflare support
+        // asks for; the body scrape is a fallback for proxies that strip it.
+        const cfRay = res.headers.get("cf-ray") ?? extractCfRay(text);
         this.opts.logger?.info(
           { method, path, status: 403, cfRay },
           "turno api blocked by cloudflare challenge",

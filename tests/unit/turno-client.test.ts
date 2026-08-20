@@ -158,4 +158,20 @@ describe("TurnoClient", () => {
     expect(err).toBeInstanceOf(TurnoCloudflareError);
     expect((err as TurnoCloudflareError).cfRay).toBeNull();
   });
+
+  it("prefers the cf-ray response header over the body scrape when the header is present", async () => {
+    const { fetchImpl } = makeMockFetch(() => ({
+      status: 403,
+      body: "<title>Just a moment...</title>",
+      headers: { "cf-ray": "8f1c2e9a7bd1e4f2-SJC" },
+    }));
+    const c = new TurnoClient({
+      baseUrl: "https://api.test/v2",
+      bearerToken: "t",
+      fetchImpl,
+    });
+    const err = await c.get("/properties").catch((e) => e);
+    expect(err).toBeInstanceOf(TurnoCloudflareError);
+    expect((err as TurnoCloudflareError).cfRay).toBe("8f1c2e9a7bd1e4f2-SJC");
+  });
 });
